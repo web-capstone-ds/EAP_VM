@@ -54,7 +54,7 @@ MES / 모바일 → Broker → 가상 EAP (CONTROL_CMD 수신)
 
 ### 2.1 이벤트 발행 (Publish) — 8종
 
-가상 EAP 서버는 아래 8종의 이벤트를 MQTT Broker에 발행해야 한다. 모든 이벤트는 DS_EAP_MQTT_API_명세서 v3.4를 준수한다.
+가상 EAP 서버는 아래 8종의 이벤트를 MQTT Broker에 발행해야 한다. 모든 이벤트는 DS_EAP_MQTT_API_명세서 v3.4 (2026-04-12 확정, G1~G5 패치 완료)를 준수한다.
 
 | # | 이벤트 타입 | 토픽 패턴 | QoS | Retained | 방향 | 주기/조건 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -71,14 +71,16 @@ MES / 모바일 → Broker → 가상 EAP (CONTROL_CMD 수신)
 
 가상 EAP는 `ds/{equipment_id}/control` 토픽을 구독하여 다음 명령에 응답해야 한다.
 
-| 명령 코드 | 발행 주체 | 동작 |
-| :--- | :--- | :--- |
-| EMERGENCY_STOP | MES / 모바일 | 즉시 장비 정지. 진행 중 Lot 중단 → LOT_END(ABORTED) 발행 |
-| STATUS_QUERY | MES / 모바일 | 즉시 STATUS_UPDATE 1회 발행 |
-| ALARM_ACK | MES / 모바일 | 해당 알람의 retained 메시지 clear (빈 페이로드 + Retain=true) |
-| ALARM_CLEAR | MES | 알람 해제 및 복구 시도 |
-| RECIPE_LOAD | MES | 지정 Recipe 로드 → RECIPE_CHANGED 발행 |
-| LOT_ABORT | MES | 현재 Lot 강제 종료 → LOT_END(ABORTED) 발행 |
+| 명령 코드 | 발행 주체 | 동작 | Mock |
+| :--- | :--- | :--- | :--- |
+| EMERGENCY_STOP | MES / 모바일 | 즉시 장비 정지. 진행 중 Lot 중단 → LOT_END(ABORTED) 발행 | 21번 |
+| STATUS_QUERY | MES / 모바일 | 즉시 STATUS_UPDATE 1회 발행 | 22번 |
+| ALARM_ACK | MES / 모바일 | 해당 알람의 retained 메시지 clear (빈 페이로드 + Retain=true) | 26, 27번 |
+| ALARM_CLEAR | MES | 알람 해제 및 복구 시도 | **Mock 미존재** |
+| RECIPE_LOAD | MES | 지정 Recipe 로드 → RECIPE_CHANGED 발행 | **Mock 미존재** |
+| LOT_ABORT | MES | 현재 Lot 강제 종료 → LOT_END(ABORTED) 발행 | **Mock 미존재** |
+
+> **Mock 부재 3종 주의:** ALARM_CLEAR, RECIPE_LOAD, LOT_ABORT는 MES 전용 명령으로 현재 Mock 데이터가 ���다. 모바일 테스트에는 영향이 없으나, 가상 EAP�� Subscribe 핸들러 구현 및 MES 연동 테스트 시 Mock 추가 작성이 필요하다. 추가 시 28~30번으로 넘버링하고 §6 인덱스에 반영할 것.
 
 ### 2.3 N대 장비 시뮬레이션
 
@@ -157,10 +159,20 @@ EAP 프로세스 비정상 종료 시 Broker가 자동 발행하는 Will 메시�
 | timestamp | ISO 8601 | UTC 밀리초 |
 | equipment_id | string | 장비 ID |
 
-**판정 기준 (Rule R01):**
+**판정 기준 (Rule R01) — 3단계:**
 - ONLINE: 최근 9초 이내 수신
-- WARNING: 9~30초 미수신
-- OFFLINE: 30초 초과 미수신
+- WARNING: 9~30초 미수신 → 네트워크 상태 확인
+- OFFLINE: 30초 초과 미수신 → 오프라인 배지 전환 + Will 메시지 확인
+
+**Will 메시지 우선순위 처리 (API 명세서 §A.5 준거):**
+
+| 우선순위 | 조건 | 동작 |
+| :--- | :--- | :--- |
+| 1 (최우선) | Will(EAP_DISCONNECTED) 수신 | 즉시 STOP 전환. Heartbeat 타이머 무시 |
+| 2 | Heartbeat 9s 미수신 | WARNING 배지. Will 미수신 시에만 적용 |
+| 3 | Heartbeat 30s 초과 미수신 | OFFLINE 배지 전환 |
+
+> **문서 간 차이 주의:** 이벤트 정의서(DS_이벤트정의서.md) A-1은 ONLINE/OFFLINE 2단계(9초 기준)로 기술되어 있으나, API 명세서 v3.4 §2.3 및 §A.5에서 3단계(9s WARNING / 30s OFFLINE + Will 최우선)로 확정되었다. 본 명세서는 API 명세서 v3.4의 3단계 기준을 따른다. 모바일/EAP 개발자는 이벤트 정의서의 2단계가 아닌 본 문서의 3단계 + Will 우선순위를 구현해야 한다.
 
 ```json
 {
@@ -215,6 +227,18 @@ EAP 프로세스 비정상 종료 시 Broker가 자동 발행하는 Will 메시�
 **토픽:** `ds/{equipment_id}/result` | **QoS:** 1 | **주기:** takt ~1,620ms
 
 8슬롯(ZAxisNum 0~7) 기준 단위 부품 검사 결과. 페이로드 약 2.1KB.
+
+**PASS drop 정책 (API 명세서 §4 Rule R39 준거):**
+
+> `overall_result=PASS AND fail_count=0`인 경우, 수신자는 `inspection_detail` / `geometric` / `bga` / `surface` / `singulation` 그룹 파싱을 스킵해야 한다. `summary` 그룹(`overall_result`, `fail_count`)만 처리한다.
+
+| 구독자 | PASS 처리 | FAIL 처리 | 비고 |
+| :--- | :--- | :--- | :--- |
+| 모바일 앱 | **구독 자체 안 함** (API §A.7.2) | 구독 안 함 | STATUS_UPDATE 진행률 필드로 대체 |
+| Historian | summary + process만 적재 | 전체 적재 | PASS detail 미적재 시 적재 부하 ~60% 감소 |
+| Oracle | summary만 카운트 | 전체 분석 | LOT_END 시 Historian 경유 일괄 조회 |
+
+가상 EAP는 PASS/FAIL 무관 전체 필드를 발행한다. drop 정책은 수신자 측 책임이나, 가상 EAP 구현자는 이 정책을 인지하여 PASS 시 detail 그룹에 실측 범위 내 정상값을 넣되, 수신자가 파싱하지 않을 수 있음을 이해해야 한다.
 
 #### 4.3.1 최상위 필드
 
@@ -507,7 +531,9 @@ Lot 완료 직후 1회 발행. LOT_END 수신 시 Oracle 2차 검증 트리거.
 
 LOT_END 수신 후 비동기 2차 검증 결과. EWMA+MAD / Isolation Forest 기반.
 
-| 필드명 | 타입 | 필수 | 설명 |
+> **주의:** ORACLE_ANALYSIS는 Oracle 서버가 발행하는 분석 결과이므로 `equipment_status` 필드를 포함하��� 않는다 (§3.1 공통 헤더 "HEARTBEAT/CONTROL/ORACLE에서는 제외" 규칙 적용). Mock 23~25번에서도 해당 필드 없음을 확인 완료.
+
+| 필드명 | 타입 | 필수 | ���명 |
 | :--- | :--- | :--- | :--- |
 | message_id | UUID | Y | 공통 헤더 |
 | event_type | string | Y | "ORACLE_ANALYSIS" 고정 |
@@ -582,41 +608,96 @@ LOT_END 수신 후 비동기 2차 검증 결과. EWMA+MAD / Isolation Forest 기
 | DS-VIS-003 | IDLE | ATC_1X1 | 교정 대기 |
 | DS-VIS-004 | STOP | - | CAM_TIMEOUT_ERR 알람 상태 |
 
+#### 5.3.1 시나리오 JSON 스키마
+
+시뮬레이터는 이 파일을 읽어 `equipments[].equipment_id`로 기존 Mock의 `equipment_id` 필드를 치환한 뒤, 각 장비의 토픽 트리에 동시 발행한다. 시나리오 파일 자체는 Broker에 발행되지 않으며, 시뮬레이터의 routing 입력으로만 사용된다.
+
+**최상위 필드:**
+
+| 필드명 | 타입 | 필수 | 설명 |
+| :--- | :--- | :--- | :--- |
+| scenario_id | string | Y | 시나리오 고유 ID (예: "MULTI-4X-001") |
+| scenario_name | string | Y | 시나리오 설명 |
+| duration_sec | integer | Y | 시뮬레이션 총 시간(초) |
+| concurrent_alarms | boolean | Y | 다수 장비 동시 알람 발생 여부 |
+| equipments | array | Y | 장비별 시나리오 배열 (아래 참조) |
+| validation_criteria | object | N | 검증 기준 (expected_topic_count, expected_status_distribution 등) |
+
+**equipments[] 요소:**
+
+| 필드명 | 타입 | 필수 | 설명 |
+| :--- | :--- | :--- | :--- |
+| equipment_id | string | Y | 장비 ID (예: "DS-VIS-001"). Mock의 equipment_id를 이 값으로 치환 |
+| display_name | string | Y | 모바일 타일 표시명 |
+| site | string | Y | 사이트명 (예: "Carsem-A") |
+| scenario | string (enum) | Y | RUN_NORMAL / RUN_DEGRADED / IDLE / STOP_CRITICAL |
+| scenario_desc | string | Y | 시나리오 상세 설명 |
+| mock_sequence | string[] | Y | 발행할 Mock 파일명 순서 목록 (확장자 제외). §6 인덱스의 파일명과 일치해야 함 |
+| tile_color_hint | string (enum) | N | 모바일 타일 색상 힌트: GREEN / YELLOW / GRAY / RED |
+
+**mock_sequence 규칙:**
+- 배열 순서대로 발행. 01_heartbeat는 별도 3초 타이머로 병행 발행.
+- 파일명은 `EAP_mock_data/` 디렉토리 내 실제 파일과 일치해야 함 (확장자 `.json` 제외).
+- 시뮬레이터가 Mock JSON을 읽을 때 `equipment_id` 필드만 해당 장비 ID로 치환하고, 나머지 필드는 원본 유지.
+- `_source`, `_note`, `_metadata` 등 `_` prefix 필드는 발행 페이로드에서 제거.
+
+```json
+// equipments[] 요소 예시 (DS-VIS-002)
+{
+  "equipment_id": "DS-VIS-002",
+  "display_name": "비전 #2 (Teaching 미완성)",
+  "site": "Carsem-A",
+  "scenario": "RUN_DEGRADED",
+  "scenario_desc": "Carsem_4X6 신규 레시피 투입 직후 SIDE ET=52 폭주.",
+  "mock_sequence": [
+    "01_heartbeat",
+    "02_status_run",
+    "19_recipe_changed_new_4x6",
+    "05_inspection_fail_side_et52",
+    "15_alarm_side_vision_fail",
+    "24_oracle_warning"
+  ],
+  "tile_color_hint": "YELLOW"
+}
+```
+
 ---
 
 ## 6. Mock 데이터 인덱스
 
-가상 EAP가 사용하는 실제 로그 기반 Mock 데이터 27종이다.
+가상 EAP가 사용하는 실제 로그 기반 Mock 데이터 27종이다. 파일명은 `EAP_mock_data/README.md` 및 실제 파일 기준이며, 이벤트 정의서 소분류와의 교차 참조를 함께 기재한다.
 
-| # | 파일 | 이벤트 | 대표 수치 |
-| :--- | :--- | :--- | :--- |
-| 01 | heartbeat | HEARTBEAT | 3초 주기 |
-| 02 | status_run | STATUS_UPDATE | RUN / Carsem_3X3 / uptime 1528s |
-| 03 | status_idle | STATUS_UPDATE | IDLE / uptime 6420s |
-| 04 | inspection_pass | INSPECTION_RESULT | PASS / ET=1 전체 / blade_wear 0.31 |
-| 05 | inspection_fail_side_et52 | INSPECTION_RESULT | FAIL / ET=52 8/8 / Carsem_4X6 |
-| 06 | inspection_fail_side_et12 | INSPECTION_RESULT | FAIL / ET=12 8/8 / chipping 65.2um |
-| 07 | inspection_fail_prs_offset | INSPECTION_RESULT | FAIL / ET=11 3/8 / x_offset 102 |
-| 08 | inspection_fail_side_mixed | INSPECTION_RESULT | FAIL / ET=52+12 혼재 |
-| 09 | lot_end_normal | LOT_END | COMPLETED / 96.2% / 2,792 units |
-| 10 | lot_end_aborted | LOT_END | ABORTED / 94.2% / 656 units |
-| 11 | alarm_cam_timeout | HW_ALARM | CRITICAL / CAM_TIMEOUT_ERR / STOP |
-| 12 | alarm_write_image_fail | HW_ALARM | CRITICAL / WRITE_FAIL / HALCON#3142 |
-| 13 | alarm_vision_null_object | HW_ALARM | WARNING / VISION_SCORE_ERR (NULL, #4056) |
-| 14 | alarm_light_param_err | HW_ALARM | WARNING / LIGHT_PWR_LOW / 자동복구 |
-| 15 | alarm_side_vision_fail | HW_ALARM | WARNING / VISION_SCORE_ERR (ET=52 48%) |
-| 16 | alarm_lot_start_fail | HW_ALARM | WARNING / VISION_SCORE_ERR (AggEx) |
-| 17 | alarm_eap_disconnected | HW_ALARM | CRITICAL / EAP_DISCONNECTED / Will |
-| 18 | recipe_changed_normal | RECIPE_CHANGED | ATC_1X1 → Carsem_3X3 |
-| 19 | recipe_changed_new_4x6 | RECIPE_CHANGED | Carsem_3X3 → Carsem_4X6 (신규) |
-| 20 | recipe_changed_446275 | RECIPE_CHANGED | ATC_1X1 → 446275 (숫자형) |
-| 21 | control_emergency_stop | CONTROL_CMD | EMERGENCY_STOP / MOBILE_APP |
-| 22 | control_status_query | CONTROL_CMD | STATUS_QUERY / MOBILE_APP |
-| 23 | oracle_normal | ORACLE_ANALYSIS | NORMAL / Carsem_3X3 / 96.2% / 28 LOT |
-| 24 | oracle_warning | ORACLE_ANALYSIS | WARNING / Carsem_4X6 / 68.5% / 8 LOT |
-| 25 | oracle_danger | ORACLE_ANALYSIS | DANGER / Carsem_4X6 / 58.3% / 12 LOT |
-| 26 | control_alarm_ack | CONTROL_CMD | ALARM_ACK / 단독 dismiss |
-| 27 | control_alarm_ack_burst | CONTROL_CMD | ALARM_ACK / burst 41건 그룹 dismiss |
+> **파일명 정합성 확인 (2026-04-12):** 문서평가(2026-04-10)에서 지적된 04/15/16번 파일명 불일치는 이벤트 정의서 부록이 README.md 기준으로 갱신되어 해소되었다. 본 인덱스의 파일명이 실제 파일·README.md·이벤트 정의서 부록과 모두 일치함을 확인 완료.
+
+| # | 파일 | 이벤트 | 이벤트정의서 소분류 | 대표 수치 |
+| :--- | :--- | :--- | :--- | :--- |
+| 01 | heartbeat | HEARTBEAT | A-1 정상 연결 | 3초 주기 |
+| 02 | status_run | STATUS_UPDATE | B-1 검사 진행 | RUN / Carsem_3X3 / uptime 1528s / 1,247/2,792 unit / 수율 95.8% |
+| 03 | status_idle | STATUS_UPDATE | B-2 대기 | IDLE / uptime 6420s / 2,792/2,792 unit / 수율 96.2% |
+| 04 | inspection_pass | INSPECTION_RESULT | C-1 유닛 정상 | PASS / ET=1 전체 / blade_wear 0.31 |
+| 05 | inspection_fail_side_et52 | INSPECTION_RESULT | C-2 SIDE ET=52 | FAIL / ET=52 8/8 / Carsem_4X6 |
+| 06 | inspection_fail_side_et12 | INSPECTION_RESULT | C-3 SIDE ET=12 | FAIL / ET=12 8/8 / chipping 65.2um |
+| 07 | inspection_fail_prs_offset | INSPECTION_RESULT | C-4 PRS ET=11 | FAIL / ET=11 3/8 / x_offset 102 |
+| 08 | inspection_fail_side_mixed | INSPECTION_RESULT | C-2b 혼재 | FAIL / ET=52+12 혼재 |
+| 09 | lot_end_normal | LOT_END | D-1 정상 완료 | COMPLETED / 96.2% / 2,792 units |
+| 10 | lot_end_aborted | LOT_END | D-2 강제 종료 | ABORTED / 94.2% / 656 units |
+| 11 | alarm_cam_timeout | HW_ALARM | E-1 카메라 타임아웃 | CRITICAL / CAM_TIMEOUT_ERR / STOP |
+| 12 | alarm_write_image_fail | HW_ALARM | E-2 이미지 저장 실패 | CRITICAL / WRITE_FAIL / HALCON#3142 |
+| 13 | alarm_vision_null_object | HW_ALARM | E-3 비전 NULL | WARNING / VISION_SCORE_ERR (NULL, #4056) |
+| 14 | alarm_light_param_err | HW_ALARM | E-4 조명 오류 | WARNING / LIGHT_PWR_LOW / 자동복구 |
+| 15 | alarm_side_vision_fail | HW_ALARM | E-5 Teaching 미완성 | WARNING / VISION_SCORE_ERR (ET=52 48%) |
+| 16 | alarm_lot_start_fail | HW_ALARM | D-3 LOT End 누락 | WARNING / VISION_SCORE_ERR (AggEx) |
+| 17 | alarm_eap_disconnected | HW_ALARM | A-2 비정상 종료 | CRITICAL / EAP_DISCONNECTED / Will |
+| 18 | recipe_changed_normal | RECIPE_CHANGED | F-1 일반 전환 | ATC_1X1 → Carsem_3X3 |
+| 19 | recipe_changed_new_4x6 | RECIPE_CHANGED | F-2 신규 투입 | Carsem_3X3 → Carsem_4X6 (신규) |
+| 20 | recipe_changed_446275 | RECIPE_CHANGED | F-2 신규 투입 | ATC_1X1 → 446275 (숫자형) |
+| 21 | control_emergency_stop | CONTROL_CMD | §8 제어 | EMERGENCY_STOP / MOBILE_APP |
+| 22 | control_status_query | CONTROL_CMD | §8 제어 | STATUS_QUERY / MOBILE_APP |
+| 23 | oracle_normal | ORACLE_ANALYSIS | §9 Oracle | NORMAL / Carsem_3X3 / 96.2% / 28 LOT |
+| 24 | oracle_warning | ORACLE_ANALYSIS | §9 Oracle | WARNING / Carsem_4X6 / 68.5% / 8 LOT |
+| 25 | oracle_danger | ORACLE_ANALYSIS | §9 Oracle | DANGER / Carsem_4X6 / 58.3% / 12 LOT |
+| 26 | control_alarm_ack | CONTROL_CMD | §8 제어 | ALARM_ACK / 단독 dismiss |
+| 27 | control_alarm_ack_burst | CONTROL_CMD | §8 제어 | ALARM_ACK / burst 41건 그룹 dismiss |
 
 ---
 
@@ -748,7 +829,37 @@ topic read ds/DS-VIS-001/control
 | 타이밍 정확도 | Heartbeat 3s ±500ms / STATUS 6s ±1s / takt 1,620ms ±200ms |
 | 로깅 | 발행 메시지 타임스탬프 + 토픽 콘솔 출력 |
 | 설정 관리 | 장비 수, 레시피, 시나리오를 외부 설정(JSON/YAML)으로 관리 |
-| Graceful Shutdown | 프로세스 종료 시 Will 메시지 발동 전 정상 LOT_END 처리 |
+| Graceful Shutdown | 아래 시퀀스 참조 |
+
+### 10.1 Graceful Shutdown 시퀀스
+
+프로세스 종료 신호(SIGTERM / Ctrl+C) 수신 시, Will 메시지가 발동되지 않도록 정상 종료 절차를 수행한다.
+
+```
+[SIGTERM 수신]
+    │
+    ├─ equipment_status == RUN?
+    │   ├── Yes ─→ ① LOT_END(ABORTED) 발행 (QoS 2, Retain=true)
+    │   │          ② STATUS_UPDATE(IDLE) 발행 (Retain=true)
+    │   │          ③ 진행 중 Heartbeat/INSPECTION 타이머 중지
+    │   └── No ──→ ③으로 직행
+    │
+    ├─ ④ 활성 알람이 있으면 빈 페이로드 + Retain=true로 clear (선택)
+    │
+    ├─ ⑤ MqttClient.DisconnectAsync() 호출
+    │     → Broker가 정상 DISCONNECT 수신 → Will 메시지 발동 안 함
+    │
+    └─ ⑥ 프로세스 종료
+```
+
+**비정상 종료와의 차이:**
+
+| 시나리오 | LOT_END | Will 발동 | Heartbeat |
+| :--- | :--- | :--- | :--- |
+| Graceful Shutdown | ABORTED 발행 후 종료 | 발동 안 함 (정상 DISCONNECT) | 종료 전 중지 |
+| 비정상 종료 (크래시) | 미발행 | 발동 (EAP_DISCONNECTED) | 자연 중단 → 9s WARNING → 30s OFFLINE |
+
+> **타임아웃:** SIGTERM 수신 후 ①~⑤ 전체를 5초 이내에 완료해야 한다. 5초 초과 시 강제 종료하여 Will 발동을 허용한다. QoS 2 핸드셰이크 지연을 고려하여 LOT_END 발행 후 최대 3초 대기.
 
 ---
 
@@ -777,12 +888,27 @@ topic read ds/DS-VIS-001/control
 
 | 문서 | 버전 | 설명 |
 | :--- | :--- | :--- |
-| DS_EAP_MQTT_API_명세서.md | v3.4 | MQTT 이벤트 메시지 API 전체 명세 |
+| DS_EAP_MQTT_API_명세서.md | v3.4 (2026-04-12 확정, G1~G5 패치 완료) | MQTT 이벤트 메시지 API 전체 명세. **본 명세서의 1차 권위 문서** |
 | DS_이벤트정의서.md | v1.0 | 이벤트 분류 체계 및 Rule-based 판정 기준 |
 | DS_Carsem_로그분석_참조보고서.md | v1.0 | Carsem 현장 14일 실가동 로그 분석 |
 | 오라클 2차 검증 기획안.md | v1.0 | Oracle 서버 2차 검증 설계 |
 | 기획안.md | v1.0 | 시스템 아키텍처 및 서버 구성 |
 | 기업소개 및 요구사항.md | v1.0 | DS 주식회사 프로젝트 요구사항 |
+| 문서평가.md | 2026-04-10 | 3자 간 정합성 평가 리포트 (B+ 87/100) |
+
+### B.1 문서 간 충돌 시 우선순���
+
+본 명세서 작성 시점(2026-04-12) 기준으��� 참조 문서 간 불일치가 존재하는 항목이 있다. 충돌 시 아래 우선순위를 따른다.
+
+**우선순위: API 명세서 v3.4 > 본 명세서(eap-spec-v1) > 이벤트 정의서 v1.0**
+
+| 항목 | API 명세��� v3.4 (권위) | 이벤트 정의서 v1.0 (차이) | 본 명세서 판단 |
+| :--- | :--- | :--- | :--- |
+| Heartbeat 판정 단계 | 3단계: ONLINE(<=9s) / WARNING(9~30s) / OFFLINE(>30s) + Will 최우선 (§2.3, §A.5) | 2단계: ONLINE(<=9s) / OFFLINE(>9s) (A-1) | API 명세서 3단계 채택 (§4.1) |
+| hw_error_code 체계 | VISION_SCORE_ERR 단일 코드 + hw_error_detail 3케이스 구분 (§6.3~6.4) | VISION_SCORE_ERR 동일 사용 (E-3, E-5, D-3). 구 코드명(VISION_NULL_OBJ 등) 제거 확인 완료 | 정합. 문서평가(2026-04-10) P0-1 지적사항은 해소됨 |
+| Mock 파일명 | README.md 기준 | 부록 인덱스 파일명이 README.md와 일치 확인 완료 | 정합. 문서평가 P0-2 지적사항(04/15/16번 불일치)은 해소됨 |
+
+> **참고:** 문서평가(2026-04-10)는 API 명세서 v3.3 기준으로 평가되었다. v3.4 패치(G1~G5) 이후 P0-1(hw_error_code 3중 불일치), P0-2(파일명 불일치), P0-3(이벤트 정의서 구 코드명)이 해소된 상태이다. 다만 이벤트 정의서의 Heartbeat 2단계 기술(A-1)은 아직 미갱신 상태이므로, 개발자는 본 문서 §4.1의 3단계 + Will 우선순위를 기준으로 구현해야 한다.
 
 ---
 
