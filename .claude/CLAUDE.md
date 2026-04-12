@@ -45,6 +45,7 @@ MES / 모바일 → Broker → 가상 EAP (CONTROL_CMD 수신)
    - 8종 이벤트 발행/수신 명세, CONTROL_CMD 핸들러, N:1 시뮬레이션, 시나리오, Graceful Shutdown
    - Mock 데이터 27종 인덱스, Rule 38개, PASS drop 정책
    - 이 문서가 EAP 구현의 직접적인 설계도
+   - ⚠️ 단, 필드 정의·QoS·Retained 등 MQTT 정책이 충돌할 경우 **API 명세서 v3.4가 항상 우선** (§0.5 참조)
 
 2. **`명세서/DS_EAP_MQTT_API_명세서.md`** — MQTT API 전체 명세 (v3.4 확정)
    - 8종 이벤트 토픽·QoS·Retained 정책, 페이로드 필드 정의
@@ -251,7 +252,7 @@ ds-eap/
 - `MqttClientManager`: MQTTnet `MqttFactory` + `MqttClientOptionsBuilder`
   - `CleanStart = false` (세션 유지)
   - `SessionExpiryInterval = 3600` (EAP도 세션 보존)
-  - `KeepAlivePeriod = 60s`
+  - `KeepAlivePeriod = 30s` (eap-spec §8.2 권장값. API §A.7.1의 60s는 구버전 참조 — EAP도 30s 통일)
   - Will 메시지: `ds/{eq}/alarm` 토픽, HW_ALARM(EAP_DISCONNECTED) 페이로드, QoS 2, WillRetain=true
 - 재연결 백오프: `1s → 2s → 5s → 15s → 30s, max 60s, jitter ±20%`
 - `appsettings.json`: Broker 주소/포트, 장비 ID 목록, 백오프 단계, 타이밍 설정
@@ -407,12 +408,12 @@ feat(eap): 단일 장비 정상 양산 흐름 구현 (E3)
 
 | 명령 | 동작 | Mock |
 |:---|:---|:---|
-| EMERGENCY_STOP | 즉시 STOP 전환 → LOT_END(ABORTED) → STATUS_UPDATE(STOP) | 21번 |
+| EMERGENCY_STOP | 즉시 STOP 전환 → LOT_END(ABORTED) 발행 → STATUS_UPDATE(STOP) 발행. Graceful Shutdown(§1.2.5)과 달리 IDLE로 전환하지 않음 — 장비는 STOP 상태 유지 | 21번 |
 | STATUS_QUERY | 즉시 STATUS_UPDATE 1회 발행 | 22번 |
 | ALARM_ACK | `ds/{eq}/alarm` 빈 페이로드 + Retain=true → retained clear | 26, 27번 |
 | ALARM_CLEAR | 알람 해제 + 복구 시도 (MES 전용) | Mock 미존재 |
 | RECIPE_LOAD | RECIPE_CHANGED 발행 (MES 전용) | Mock 미존재 |
-| LOT_ABORT | LOT_END(ABORTED) → STATUS_UPDATE(IDLE) (MES 전용) | Mock 미존재 |
+| LOT_ABORT | LOT_END(ABORTED) → STATUS_UPDATE(IDLE) 전환 (MES 전용). EMERGENCY_STOP과 달리 장비 정지 아님 — IDLE로 복귀 | Mock 미존재 |
 
 ### 7.3 ALARM_ACK 상세 (eap-spec §4.5, API §6.6)
 
@@ -468,7 +469,7 @@ feat(eap): CONTROL_CMD 수신 핸들러 6종 (E4)
 |:---|:---|:---|:---|
 | DS-VIS-001 | RUN | 정상 양산 (Carsem_3X3, 수율 96.2%) | GREEN |
 | DS-VIS-002 | RUN | Teaching 미완성 (Carsem_4X6, ET=52 폭주) | YELLOW |
-| DS-VIS-003 | IDLE | 대기 (직전 LOT 완료, 다음 대기) | GRAY |
+| DS-VIS-003 | IDLE | 대기 (ATC_1X1, 직전 LOT 완료 후 다음 투입 대기) | GRAY |
 | DS-VIS-004 | STOP | CAM_TIMEOUT_ERR 알람 + Will 시뮬레이션 | RED |
 
 ### 8.4 검증 체크리스트
@@ -651,7 +652,7 @@ feat(eap): Graceful Shutdown + 통합 테스트 (E7)
 4. ✅ 실로그 기반 Mock 01~17의 수치는 절대 변경하지 않는다는 원칙을 기억하는가?
 5. ✅ 각 Task 끝에 검증 체크리스트를 모두 통과해야 다음 Task로 넘어간다는 규칙을 따를 것인가?
 
-모두 ✅이면 **§0.4 필독 문서 3개를 먼저 read한 후**, Task E1부터 시작한다.
+모두 ✅이면 **§0.4 필독 문서 4개를 먼저 read한 후**, Task E1부터 시작한다.
 
 작업 진행 중 §0~§12 중 어느 절이라도 모순되거나 막막한 부분이 있다면, 추측으로 진행하지 말고 멈춰서 사용자에게 질문한다.
 
