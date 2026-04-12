@@ -1,7 +1,8 @@
 # DS 주식회사 가상 EAP 서버 작업 명세서
 
-**문서번호:** DS-EAP-VM-SPEC-001 v1.0
+**문서번호:** DS-EAP-VM-SPEC-001 v1.1
 **작성일:** 2026-04-12
+**최종 수정:** 2026-04-12 (ds-document 1차 수정본 교차 검증 반영)
 **프로젝트:** 반도체 후공정 비전 검사 장비 — 가상 EAP (Mock Publisher) 서버
 **대외비**
 
@@ -228,7 +229,7 @@ EAP 프로세스 비정상 종료 시 Broker가 자동 발행하는 Will 메시�
 
 8슬롯(ZAxisNum 0~7) 기준 단위 부품 검사 결과. 페이로드 약 2.1KB.
 
-**PASS drop 정책 (API 명세서 §4 Rule R39 준거):**
+**PASS drop 정책 (API 명세서 v3.4 §4 운영 정책 준거):**
 
 > `overall_result=PASS AND fail_count=0`인 경우, 수신자는 `inspection_detail` / `geometric` / `bga` / `surface` / `singulation` 그룹 파싱을 스킵해야 한다. `summary` 그룹(`overall_result`, `fail_count`)만 처리한다.
 
@@ -460,7 +461,7 @@ Lot 완료 직후 1회 발행. LOT_END 수신 시 Oracle 2차 검증 트리거.
 | Teaching 미완성 | "SIDE ET=52 fail rate exceeded 50%" | null |
 | LOT 시작 실패 | "UnobservedTaskException in LotController.StartNewLot" | AggregateException |
 
-**알람 ACK 시퀀스:**
+**알람 ACK 시퀀스 (수동):**
 
 ```
 1. EAP가 HW_ALARM 발행 (Retain=true)
@@ -468,6 +469,20 @@ Lot 완료 직후 1회 발행. LOT_END 수신 시 Oracle 2차 검증 트리거.
 3. EAP가 수신 → ds/{eq}/alarm에 빈 페이로드 + Retain=true 발행
 4. Broker가 retained 메시지 삭제 → 신규 구독자 알람 미수신
 ```
+
+**알람 자동 ACK 시나리오 (API 명세서 v3.4 §6.6.3):**
+
+다음 경우 EAP는 모바일 명령 없이 자동으로 retained alarm을 clear할 수 있다. 자동 clear 시에도 빈 페이로드 + Retain=true 발행 패턴은 동일하다.
+
+| 자동 clear 트리거 | 대상 알람 |
+| :--- | :--- |
+| `auto_recovery_attempted=true` 알람의 복구 성공 확인 | LIGHT_PWR_LOW 등 |
+| 동일 hw_error_code의 정상 STATUS_UPDATE 6회 연속 (36초) 수신 | CAM_TIMEOUT_ERR 복구 후 |
+| 새 RECIPE_CHANGED 발생 시 이전 레시피 관련 VISION_SCORE_ERR | Teaching incomplete 알람 |
+
+**burst_id 그룹 ACK (API 명세서 v3.4 §6.6.2):**
+
+`burst_id`로 묶인 연속 알람은 한 번의 ACK로 그룹 전체를 dismiss할 수 있다. 모바일이 `target_burst_id`를 명시하면 EAP는 동일 burst_id 그룹의 모든 retained 알람을 일괄 clear한다. AggregateException 41건 burst 케이스(Mock 27번) 대응.
 
 ---
 
@@ -596,6 +611,8 @@ LOT_END 수신 후 비동기 2차 검증 결과. EWMA+MAD / Isolation Forest 기
 | 긴급 정지 | CONTROL_CMD(EMERGENCY_STOP) | CONTROL_CMD 수신 → 즉시 STATUS_UPDATE(STOP) |
 | 조명 열화 | WrongValueException | HW_ALARM(LIGHT_PWR_LOW) → SIDE Pass율 점진 하락 |
 | LOT_END 누락 | Start/End 불균형 | LOT Start 후 24,000s 초과 → HW_ALARM(VISION_SCORE_ERR, LotController) |
+| 단독 알람 ACK | CONTROL_CMD(ALARM_ACK), burst_id=null | CONTROL_CMD 수신 → ds/{eq}/alarm에 빈 페이로드+Retain=true 발행 → retained clear (Mock 26번) |
+| burst 그룹 ACK | CONTROL_CMD(ALARM_ACK), target_burst_id 지정 | CONTROL_CMD 수신 → 동일 burst_id 그룹 전체 retained clear (Mock 27번, AggEx 41건) |
 
 ### 5.3 N:1 다설비 시나리오
 
@@ -763,6 +780,16 @@ topic read ds/DS-VIS-001/control
 - Publish: `ds/{id}/heartbeat`, `status`, `result`, `lot`, `alarm`, `recipe`
 - Subscribe: `ds/{id}/control`
 
+**모바일 앱 계정 (참고):**
+Mobile app — Read + limited Publish (control only)
+user mobile_app
+topic read ds/#
+topic write ds/+/control
+Allowed commands: EMERGENCY_STOP, STATUS_QUERY, ALARM_ACK
+
+- Subscribe: `ds/#` 전체 (단, `ds/+/result`는 구독하지 않음 — API §A.7.2)
+- Publish: `ds/+/control` 한정 (3종 명령만 ACL 허용)
+
 ### 8.2 연결 규격
 
 | 항목 | 값 |
@@ -890,7 +917,7 @@ topic read ds/DS-VIS-001/control
 | :--- | :--- | :--- |
 | DS_EAP_MQTT_API_명세서.md | v3.4 (2026-04-12 확정, G1~G5 패치 완료) | MQTT 이벤트 메시지 API 전체 명세. **본 명세서의 1차 권위 문서** |
 | DS_이벤트정의서.md | v1.0 | 이벤트 분류 체계 및 Rule-based 판정 기준 |
-| DS_Carsem_로그분석_참조보고서.md | v1.0 | Carsem 현장 14일 실가동 로그 분석 |
+| DS_Carsem_로그분석_참조보고서.md | v1.0 | Carsem 현장 14일 실가동 로그 분석. 별도 보관. 실측 수치는 API 명세서 v3.4 §9.2(실측 기준값)에서도 확인 가능 |
 | 오라클 2차 검증 기획안.md | v1.0 | Oracle 서버 2차 검증 설계 |
 | 기획안.md | v1.0 | 시스템 아키텍처 및 서버 구성 |
 | 기업소개 및 요구사항.md | v1.0 | DS 주식회사 프로젝트 요구사항 |
@@ -913,4 +940,13 @@ topic read ds/DS-VIS-001/control
 ---
 
 *마지막 업데이트: 2026-04-12*
-*문서번호: DS-EAP-VM-SPEC-001 v1.0*
+*문서번호: DS-EAP-VM-SPEC-001 v1.1*
+
+---
+
+## 부록 C. 개정 이력
+
+| 버전 | 일자 | 변경 내용 |
+| :--- | :--- | :--- |
+| v1.0 | 2026-04-12 | 최초 작성. API 명세서 v3.4, 이벤트 정의서 v1.0, Mock 27종, Rule 38개, N:1 시나리오 통합 |
+| v1.1 | 2026-04-12 | ds-document 1차 수정본(G1~G5 패치 완료) 교차 검증 반영: ① PASS drop R39 문구 수정 ② 자동 ACK 시나리오 3건 + burst 그룹 ACK 설명 추가 (§4.5) ③ 비정상 시나리오 알람 ACK 2행 추가 (§5.2) ④ 모바일 ACL 주석 추가 (§8.1) ⑤ 참조 보고서 접근성 주석 (부록 B) |
