@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Hansung_Project/**)",
+      "Read(//c/Hansung_Project/DS-Document/EAP_mock_data/**)",
+      "Bash(dotnet build:*)",
+      "Bash(dotnet test:*)",
+      "Bash(ls C:/Hansung_Project/EAP_VM/tests/DsEap.Tests/*.cs C:/Hansung_Project/EAP_VM/명세서/)",
+      "Bash(ls -la C:/Users/yunwo/.claude/projects/C--Hansung-Project-EAP-VM/*.jsonl)",
+      "Bash(grep -o '\"text\":\"[^\"]\\\\{1,300\\\\}')",
+      "Read(//c/DS-Document/EAP_mock_data/**)",
+      "Read(//c/ds-document/EAP_mock_data/**)",
+      "Bash(ls ../ds-document/EAP_mock_data/*.json)"
+    ]
+  }
+}

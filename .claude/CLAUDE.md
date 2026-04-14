@@ -41,28 +41,53 @@ MES / 모바일 → Broker → 가상 EAP (CONTROL_CMD 수신)
 
 작업을 시작하기 전에 **반드시 아래 문서를 순서대로 읽어서 컨텍스트를 머릿속에 적재**한다. 이걸 건너뛰면 MQTT 정책, Mock 데이터 구조, 이벤트 시퀀스를 잘못 구현할 위험이 있다.
 
-1. **`명세서/eap-spec-v1.md`** — **가상 EAP 서버 작업 명세서 (1차 구현 권위 문서)**
+1. **`../ds-document/명세서/eap-spec-v1.md`** — **가상 EAP 서버 작업 명세서 (1차 구현 설계도)**
    - 8종 이벤트 발행/수신 명세, CONTROL_CMD 핸들러, N:1 시뮬레이션, 시나리오, Graceful Shutdown
    - Mock 데이터 27종 인덱스, Rule 38개, PASS drop 정책
    - 이 문서가 EAP 구현의 직접적인 설계도
    - ⚠️ 단, 필드 정의·QoS·Retained 등 MQTT 정책이 충돌할 경우 **API 명세서 v3.4가 항상 우선** (§0.5 참조)
 
-2. **`명세서/DS_EAP_MQTT_API_명세서.md`** — MQTT API 전체 명세 (v3.4 확정)
+2. **`../ds-document/명세서/DS_EAP_MQTT_API_명세서.md`** — MQTT API 전체 명세 (v3.4 확정, **충돌 시 최우선 문서**)
    - 8종 이벤트 토픽·QoS·Retained 정책, 페이로드 필드 정의
    - Retained Message 정책 (§1.1.1), 진행률 3필드 (§3.1), 알람 ACK (§6.6)
    - Mobile Subscriber 세션 정책 (부록 A.7), 재연결 백오프 (부록 A.6)
 
-3. **`명세서/DS_이벤트정의서.md`** — 5대분류 / 15소분류 / 38 Rule 이벤트 분류 체계
+3. **`../ds-document/명세서/DS_이벤트정의서.md`** — 5대분류 / 15소분류 / 38 Rule 이벤트 분류 체계
    - Rule R01~R38c 판정 기준 참조 (Oracle 연동 시 필요)
 
-4. **`문서/기획안.md`** — 시스템 아키텍처, 7종 서버 구성, 데이터 흐름
+4. **`../ds-document/문서/기획안.md`** — 시스템 아키텍처, 7종 서버 구성, 데이터 흐름
    - 프로젝트 전체 맥락 파악용 (읽기 전용)
 
-> **💡 Claude Code 사용 패턴**: 작업 전에 `명세서/eap-spec-v1.md`, `명세서/DS_EAP_MQTT_API_명세서.md`, `명세서/DS_이벤트정의서.md`를 순서대로 읽고 컨텍스트를 적재하라.
+> **💡 Claude Code 사용 패턴**: 작업 전에 `../ds-document/명세서/eap-spec-v1.md`, `../ds-document/명세서/DS_EAP_MQTT_API_명세서.md`, `../ds-document/명세서/DS_이벤트정의서.md`를 순서대로 읽고 컨텍스트를 적재하라.
 
 ### 0.5 문서 간 충돌 시 우선순위
 
 > **API 명세서 v3.4 > eap-spec-v1 > 이벤트 정의서 v1.0**
+
+### 0.6 인접 저장소 구조 (필수 전제)
+
+이 저장소(ds-eap)는 ds-document 저장소의 문서와 Mock 데이터를 **상대경로(`../ds-document/`)로 직접 참조**한다. 파일을 복사하지 않는다. 아래 디렉토리 구조가 갖춰져 있어야 한다. 없으면 작업을 시작하지 말고 사용자에게 알려라.
+
+```
+~/projects/                            ← 또는 어떤 공통 부모 디렉토리든
+├── ds-document/                       ← 문서·Mock 원본 저장소
+│   ├── 명세서/
+│   │   ├── eap-spec-v1.md             ← 가상 EAP 서버 작업 명세서
+│   │   ├── DS_EAP_MQTT_API_명세서.md   ← MQTT API 전체 명세 v3.4
+│   │   └── DS_이벤트정의서.md           ← 이벤트 분류 체계 + Rule 38개
+│   ├── 문서/
+│   │   └── 기획안.md                   ← 시스템 아키텍처
+│   └── EAP_mock_data/
+│       ├── 01_heartbeat.json ~ 27_control_alarm_ack_burst.json
+│       ├── README.md
+│       └── scenarios/
+│           └── multi_equipment_4x.json
+└── ds-eap/                            ← 이 저장소 (EAP 개발)
+    └── .claude/
+        └── CLAUDE.md
+```
+
+> **주의:** ds-document의 문서와 Mock 데이터는 읽기 전용 참조 자원이다. ds-eap에서 직접 수정하지 말 것. 원본 수정이 필요하면 ds-document 저장소에서 수정한다.
 
 ---
 
@@ -206,7 +231,7 @@ ds-eap/
 │       │       ├── RecipePublisher.cs     ← 레시피 변경
 │       │       └── OraclePublisher.cs     ← LOT_END 후 비동기 분석 결과
 │       ├── MockData/
-│       │   ├── MockDataLoader.cs          ← EAP_mock_data/*.json 로딩
+│       │   ├── MockDataLoader.cs          ← ../ds-document/EAP_mock_data/*.json 로딩
 │       │   └── MockPayloadTransformer.cs  ← equipment_id 치환 + _ prefix 필드 제거
 │       └── Scenarios/
 │           ├── ScenarioRunner.cs          ← multi_equipment_4x.json 기반 N:1 시뮬레이션
@@ -214,8 +239,7 @@ ds-eap/
 ├── config/
 │   ├── appsettings.json                   ← Broker 주소, 백오프 단계, 타이밍
 │   └── scenarios/
-│       └── multi_equipment_4x.json        ← EAP_mock_data/scenarios/ 에서 복사
-├── mock-data/                             ← EAP_mock_data/ 에서 복사 (01~27 JSON)
+│       └── multi_equipment_4x.json        ← ../ds-document/EAP_mock_data/scenarios/ 참조
 ├── tests/
 │   └── DsEap.Tests/
 │       ├── PayloadSerializationTests.cs   ← JSON 직렬화 검증
@@ -252,7 +276,7 @@ ds-eap/
 - `MqttClientManager`: MQTTnet `MqttFactory` + `MqttClientOptionsBuilder`
   - `CleanStart = false` (세션 유지)
   - `SessionExpiryInterval = 3600` (EAP도 세션 보존)
-  - `KeepAlivePeriod = 30s` (eap-spec §8.2 권장값. API §A.7.1의 60s는 구버전 참조 — EAP도 30s 통일)
+  - `KeepAlivePeriod = 30s` (eap-spec §8.2 권장값. API §A.7.1의 60s는 모바일 대비 참고값 — EAP도 30s 통일)
   - Will 메시지: `ds/{eq}/alarm` 토픽, HW_ALARM(EAP_DISCONNECTED) 페이로드, QoS 2, WillRetain=true
 - 재연결 백오프: `1s → 2s → 5s → 15s → 30s, max 60s, jitter ±20%`
 - `appsettings.json`: Broker 주소/포트, 장비 ID 목록, 백오프 단계, 타이밍 설정
@@ -459,7 +483,7 @@ feat(eap): CONTROL_CMD 수신 핸들러 6종 (E4)
 ### 8.2 핵심 구현 사항
 
 - `ScenarioRunner`: 시나리오 JSON 로딩 → 장비별 `VirtualEquipment` 인스턴스 생성
-- `MockDataLoader`: `EAP_mock_data/*.json` 로딩, `_` prefix 메타 필드 제거
+- `MockDataLoader`: `../ds-document/EAP_mock_data/*.json` 로딩, `_` prefix 메타 필드 제거
 - `MockPayloadTransformer`: `equipment_id` 필드만 시나리오의 장비 ID로 치환
 - `SequencePlayer`: `mock_sequence[]` 배열 순서대로 재생, Heartbeat는 별도 3초 타이머 병행
 
@@ -634,9 +658,9 @@ feat(eap): Graceful Shutdown + 통합 테스트 (E7)
 - ✅ Git 커밋은 Task 단위로 7번 분리. 한 커밋에 여러 Task 섞지 말 것
 
 ### 12.3 막혔을 때
-- MQTT 정책이 모호하면 `명세서/DS_EAP_MQTT_API_명세서.md`를 다시 읽는다
-- 이벤트 시퀀스가 불확실하면 `명세서/eap-spec-v1.md` §5 시나리오를 확인한다
-- Mock 데이터 구조가 기억나지 않으면 `EAP_mock_data/README.md`를 참조한다
+- MQTT 정책이 모호하면 `../ds-document/명세서/DS_EAP_MQTT_API_명세서.md`를 다시 읽는다
+- 이벤트 시퀀스가 불확실하면 `../ds-document/명세서/eap-spec-v1.md` §5 시나리오를 확인한다
+- Mock 데이터 구조가 기억나지 않으면 `../ds-document/EAP_mock_data/README.md`를 참조한다
 - 필드명/값 컨벤션이 모호하면 기존 Mock 01~27의 패턴을 따른다
 - 두 가지 해석이 가능한 경우, 이 CLAUDE.md의 §0~§1 원칙으로 돌아간다
 
@@ -648,7 +672,7 @@ feat(eap): Graceful Shutdown + 통합 테스트 (E7)
 
 1. ✅ 7개 Task의 우선순위와 의존성을 이해했는가? (E1 → E2 → E3 → E4 → E5 → E6 → E7)
 2. ✅ **C# 코드를 작성**하는 것이 이번 작업의 목표라는 점을 이해했는가?
-3. ✅ `명세서/eap-spec-v1.md`가 구현의 1차 권위 문서라는 점을 기억하는가?
+3. ✅ `../ds-document/명세서/eap-spec-v1.md`가 구현의 1차 설계도라는 점을 기억하는가?
 4. ✅ 실로그 기반 Mock 01~17의 수치는 절대 변경하지 않는다는 원칙을 기억하는가?
 5. ✅ 각 Task 끝에 검증 체크리스트를 모두 통과해야 다음 Task로 넘어간다는 규칙을 따를 것인가?
 
