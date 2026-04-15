@@ -10,12 +10,12 @@
 using System;
 using System.Reflection;
 
-[assembly: System.Reflection.AssemblyCompanyAttribute("DsEap")]
+[assembly: System.Reflection.AssemblyCompanyAttribute("DsEapControlCli")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
 [assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9d45281eba3d77004f9979c9c643eaad9283e0ac")]
-[assembly: System.Reflection.AssemblyProductAttribute("DsEap")]
-[assembly: System.Reflection.AssemblyTitleAttribute("DsEap")]
+[assembly: System.Reflection.AssemblyProductAttribute("DsEapControlCli")]
+[assembly: System.Reflection.AssemblyTitleAttribute("DsEapControlCli")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
 
 // MSBuild WriteCodeFragment 클래스에서 생성되었습니다.

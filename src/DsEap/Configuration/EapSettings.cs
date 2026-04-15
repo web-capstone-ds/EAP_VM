@@ -8,6 +8,10 @@ public sealed class EapSettings
     public PathSettings Paths { get; set; } = new();
     public string RunMode { get; set; } = "Scenario"; // "Scenario" | "GoldenPath"
     public GoldenPathSettings GoldenPath { get; set; } = new();
+
+    // E7 검증/통합테스트용. 0 또는 미지정이면 비활성. 양수면 해당 초 후
+    // IHostApplicationLifetime.StopApplication()을 호출해 Ctrl+C와 동일한 graceful 경로 진입.
+    public int AutoShutdownAfterSec { get; set; } = 0;
 }
 
 public sealed class BrokerSettings

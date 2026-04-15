@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Hansung_Project/EAP_VM/**)",
+      "Read(//c/Hansung_Project/EAP_VM/tests/**)",
+      "Read(//c/Hansung_Project/**)",
+      "Bash(dotnet build:*)",
+      "Bash(dotnet run:*)",
+      "Bash(where mosquitto_pub)",
+      "Bash(where mosquitto_sub)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "Bash(python:*)",
+      "Bash(where python:*)",
+      "Bash(where py:*)",
+      "Bash(where python3:*)",
+      "Bash(py:*)"
+    ]
+  }
+}

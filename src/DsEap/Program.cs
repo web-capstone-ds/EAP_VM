@@ -88,6 +88,20 @@ internal sealed class EapHostedService : IHostedService
 
         await _mqtt.StartAsync(_cts.Token);
 
+        if (_settings.AutoShutdownAfterSec > 0)
+        {
+            var delay = TimeSpan.FromSeconds(_settings.AutoShutdownAfterSec);
+            _log.LogInformation("AutoShutdown scheduled in {Sec}s (E7 graceful path test)",
+                _settings.AutoShutdownAfterSec);
+            _ = Task.Run(async () =>
+            {
+                try { await Task.Delay(delay, _cts!.Token); }
+                catch (OperationCanceledException) { return; }
+                _log.LogInformation("AutoShutdown firing → IHostApplicationLifetime.StopApplication()");
+                _lifetime.StopApplication();
+            }, CancellationToken.None);
+        }
+
         _runnerTask = Task.Run(async () =>
         {
             try
