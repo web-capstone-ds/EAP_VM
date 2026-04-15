@@ -63,6 +63,7 @@ public sealed class MqttClientManager : IAsyncDisposable
             .WithWillQualityOfServiceLevel(MqttQualityOfServiceLevel.ExactlyOnce)
             .WithWillRetain(true)
             .WithWillContentType("application/json")
+            .WithCredentials(_settings.Broker.Username, _settings.Broker.Password)
             .Build();
     }
 

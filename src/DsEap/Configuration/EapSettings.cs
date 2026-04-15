@@ -17,6 +17,8 @@ public sealed class BrokerSettings
     public int KeepAliveSeconds { get; set; } = 30;
     public uint SessionExpirySeconds { get; set; } = 3600;
     public bool CleanStart { get; set; } = false;
+    public string Username { get; set; } = "";
+    public string Password { get; set; } = "";
 }
 
 public sealed class BackoffSettings
