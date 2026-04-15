@@ -1,0 +1,31 @@
+## .NET build outputs
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Rider / VS
+.idea/
+.vs/
+*.swp
+
+## Test results
+[Tt]est[Rr]esult*/
+coverage.*.xml
+*.coverage
+*.coveragexml
+
+## Logs
+logs/
+*.log
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Secrets / local settings
+appsettings.Local.json
+appsettings.Development.json
+*.secret
