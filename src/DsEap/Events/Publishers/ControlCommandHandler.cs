@@ -54,9 +54,15 @@ public sealed class ControlCommandHandler
                 break;
 
             case "ALARM_CLEAR":
+                await HandleAlarmClear(eq, ct);
+                break;
+
             case "RECIPE_LOAD":
+                await HandleRecipeLoad(eq, cmd, ct);
+                break;
+
             case "LOT_ABORT":
-                _log.LogInformation("CONTROL_CMD {Cmd} received (stub handler, MES 전용)", cmd.Command);
+                await HandleLotAbort(eq, ct);
                 break;
 
             default:
@@ -87,5 +93,38 @@ public sealed class ControlCommandHandler
             _log.LogInformation("ALARM_ACK burst cleared: burst_id={BurstId}", cmd.TargetBurstId);
         else
             _log.LogInformation("ALARM_ACK single alarm cleared for {Eq}", eq.EquipmentId);
+    }
+
+    // eap-spec §7.2 ALARM_CLEAR — MES 전용. 알람 해제 + 복구 시도
+    private async Task HandleAlarmClear(VirtualEquipment eq, CancellationToken ct)
+    {
+        _log.LogInformation("ALARM_CLEAR: clearing alarm and attempting recovery for {Eq}", eq.EquipmentId);
+        await _publisher.ClearAlarmRetainedAsync(eq, ct);
+        _alarmTracker.ClearAlarm(eq.EquipmentId);
+    }
+
+    // eap-spec §7.2 RECIPE_LOAD — MES 전용. 지정 레시피 로드 → RECIPE_CHANGED 발행
+    private Task HandleRecipeLoad(VirtualEquipment eq, ControlCmdPayload cmd, CancellationToken ct)
+    {
+        // cmd.Reason에 "recipe_id:version" 형식이 들어올 수 있으나, 현재 Mock 미존재이므로 로그만 출력
+        _log.LogInformation("RECIPE_LOAD: eq={Eq} reason={Reason} (MES 전용)", eq.EquipmentId, cmd.Reason);
+        return Task.CompletedTask;
+    }
+
+    // eap-spec §7.2 LOT_ABORT — MES 전용. LOT_END(ABORTED) → STATUS(IDLE) 전환
+    // EMERGENCY_STOP과 달리 장비 정지 아님 — IDLE로 복귀
+    private async Task HandleLotAbort(VirtualEquipment eq, CancellationToken ct)
+    {
+        if (eq.State == EquipmentState.Run)
+        {
+            _log.LogInformation("LOT_ABORT: {Eq} LOT_END(ABORTED) → STATUS(IDLE)", eq.EquipmentId);
+            await _publisher.PublishLotEndAsync(eq, "ABORTED", ct);
+            eq.FinalizeLot(); // FinalizeLot이 IDLE로 전환
+            await _publisher.PublishStatusAsync(eq, ct);
+        }
+        else
+        {
+            _log.LogInformation("LOT_ABORT: {Eq} not in RUN state ({State}), ignoring", eq.EquipmentId, eq.State);
+        }
     }
 }

@@ -10,7 +10,24 @@
       "Bash(grep -o '\"text\":\"[^\"]\\\\{1,300\\\\}')",
       "Read(//c/DS-Document/EAP_mock_data/**)",
       "Read(//c/ds-document/EAP_mock_data/**)",
-      "Bash(ls ../ds-document/EAP_mock_data/*.json)"
+      "Bash(ls ../ds-document/EAP_mock_data/*.json)",
+      "Bash(where mosquitto *)",
+      "Bash(git add *)",
+      "Bash(where choco *)",
+      "Bash(where scoop *)",
+      "Bash(where winget *)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "Bash(cmd.exe /c \"where winget\")",
+      "Bash(cmd.exe *)",
+      "Bash(powershell.exe *)",
+      "Bash(/c/Program Files/mosquitto/mosquitto_passwd.exe *)",
+      "Bash(\"/c/Program Files/mosquitto/mosquitto.exe\" -c \"C:/Hansung_Project/mosquitto_config/mosquitto.conf\" -v)",
+      "Bash(\"/c/Program Files/mosquitto/mosquitto_pub.exe\" -h localhost -p 1883 -u mes_server -P mes_admin_99 -t \"ds/test/heartbeat\" -m '{\"test\":\"ok\"}')",
+      "Bash(tasklist)",
+      "Bash(taskkill *)",
+      "Bash(sc query *)",
+      "Read(//c/Users/yunwo/AppData/Local/Temp/claude/C--Hansung-Project-EAP-VM/8c971ae5-928d-4117-9a2c-3de9852df17f/tasks/**)"
     ]
   }
 }

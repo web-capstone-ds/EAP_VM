@@ -87,6 +87,10 @@ public sealed class ScenarioRunner
                 case "RUN_DEGRADED":  await DriveRunDegraded(eq, ct); break;
                 case "IDLE":          await DriveIdle(eq, ct); break;
                 case "STOP_CRITICAL": await DriveStopCritical(eq, ct); break;
+                case "DISK_FULL":     await DriveDiskFull(eq, ct); break;
+                case "LIGHT_DEGRADE": await DriveLightDegrade(eq, ct); break;
+                case "LOT_MISSING":   await DriveLotMissing(eq, ct); break;
+                case "EAP_CRASH_BURST": await DriveEapCrashBurst(eq, ct); break;
                 default:
                     _log.LogWarning("Unknown scenario {Scenario} for {Eq}", def.Scenario, eq.EquipmentId);
                     break;
@@ -199,31 +203,191 @@ public sealed class ScenarioRunner
         await _publisher.PublishHwAlarmAsync(eq, willAlarm, ct);
     }
 
+    // eap-spec §5.2 디스크 포화 — WRITE_FAIL × 20 → fps 저하 → LOT_END(ABORTED)
+    // Mock 12: WRITE_FAIL (CRITICAL, HALCON #3142)
+    private async Task DriveDiskFull(VirtualEquipment eq, CancellationToken ct)
+    {
+        var lotId = $"LOT-{DateTime.UtcNow:yyyyMMdd}-DSK{Random.Shared.Next(1, 1000):D3}";
+        eq.StartLot(lotId, _settings.Timing.ExpectedTotalUnits);
+        await _publisher.PublishStatusAsync(eq, ct);
+
+        // 정상 검사 5회 → 디스크 포화 발생
+        for (int i = 0; i < 5 && !ct.IsCancellationRequested; i++)
+        {
+            var payload = _mocks.Get<InspectionResultPayload>("04_inspection_pass");
+            var (stripNo, unitNo) = eq.CurrentStripAndUnit();
+            MockPayloadTransformer.OverrideInspection(
+                payload, eq.EquipmentId, lotId, $"STRIP-{stripNo:D3}", $"UNIT-{unitNo:D4}",
+                eq.RecipeId, eq.RecipeVersion, eq.OperatorId, eq.State.ToWire());
+            await _publisher.PublishInspectionAsync(eq, payload, ct);
+            eq.RecordInspection(pass: true);
+            try { await Task.Delay(TimeSpan.FromMilliseconds(_settings.Timing.TaktTimeMs), ct); }
+            catch (OperationCanceledException) { return; }
+        }
+
+        // HW_ALARM: WRITE_FAIL (Mock 12) — CRITICAL → STOP
+        eq.TransitionToStop();
+        var alarm = _mocks.Get<HwAlarmPayload>("12_alarm_write_image_fail");
+        await _publisher.PublishHwAlarmAsync(eq, alarm, ct);
+        await _publisher.PublishStatusAsync(eq, ct);
+
+        // LOT_END(ABORTED) — 디스크 포화로 양산 중단
+        await _publisher.PublishLotEndAsync(eq, "ABORTED", ct);
+        eq.FinalizeLot();
+        await _publisher.PublishStatusAsync(eq, ct);
+    }
+
+    // eap-spec §5.2 조명 열화 — LIGHT_PWR_LOW → SIDE Pass율 점진 하락
+    // Mock 14: LIGHT_PWR_LOW (WARNING, auto_recovery_attempted=true)
+    private async Task DriveLightDegrade(VirtualEquipment eq, CancellationToken ct)
+    {
+        var lotId = $"LOT-{DateTime.UtcNow:yyyyMMdd}-LIT{Random.Shared.Next(1, 1000):D3}";
+        eq.StartLot(lotId, _settings.Timing.ExpectedTotalUnits);
+        await _publisher.PublishStatusAsync(eq, ct);
+
+        // 정상 검사 3회
+        for (int i = 0; i < 3 && !ct.IsCancellationRequested; i++)
+        {
+            var payload = _mocks.Get<InspectionResultPayload>("04_inspection_pass");
+            var (stripNo, unitNo) = eq.CurrentStripAndUnit();
+            MockPayloadTransformer.OverrideInspection(
+                payload, eq.EquipmentId, lotId, $"STRIP-{stripNo:D3}", $"UNIT-{unitNo:D4}",
+                eq.RecipeId, eq.RecipeVersion, eq.OperatorId, eq.State.ToWire());
+            await _publisher.PublishInspectionAsync(eq, payload, ct);
+            eq.RecordInspection(pass: true);
+            try { await Task.Delay(TimeSpan.FromMilliseconds(_settings.Timing.TaktTimeMs), ct); }
+            catch (OperationCanceledException) { return; }
+        }
+
+        // HW_ALARM: LIGHT_PWR_LOW (Mock 14) — WARNING, auto_recovery=true
+        // auto_recovery=true이므로 EventPublisher가 자동 clear 트리거 (§4.5 Trigger 1)
+        var alarm = _mocks.Get<HwAlarmPayload>("14_alarm_light_param_err");
+        await _publisher.PublishHwAlarmAsync(eq, alarm, ct);
+
+        // 조명 열화 후 FAIL 비율 증가 — ET=12 혼재 검사
+        for (int i = 0; i < 5 && !ct.IsCancellationRequested; i++)
+        {
+            var failPayload = _mocks.Get<InspectionResultPayload>("06_inspection_fail_side_et12");
+            var (s, u) = eq.CurrentStripAndUnit();
+            MockPayloadTransformer.OverrideInspection(
+                failPayload, eq.EquipmentId, lotId, $"STRIP-{s:D3}", $"UNIT-{u:D4}",
+                eq.RecipeId, eq.RecipeVersion, eq.OperatorId, eq.State.ToWire());
+            await _publisher.PublishInspectionAsync(eq, failPayload, ct);
+            eq.RecordInspection(pass: false);
+            try { await Task.Delay(TimeSpan.FromMilliseconds(_settings.Timing.TaktTimeMs), ct); }
+            catch (OperationCanceledException) { return; }
+        }
+
+        // ORACLE_ANALYSIS: WARNING
+        await Task.Delay(TimeSpan.FromSeconds(1), ct);
+        var oracle = _mocks.Get<OracleAnalysisPayload>("24_oracle_warning");
+        MockPayloadTransformer.OverrideOracle(oracle, eq.EquipmentId, lotId, eq.RecipeId);
+        await _publisher.PublishOracleAsync(eq, oracle, ct);
+    }
+
+    // eap-spec §5.2 LOT_END 누락 — LOT Start 후 24,000s 초과 시뮬레이션
+    // Mock 16: VISION_SCORE_ERR (AggregateException, LotController.StartNewLot)
+    private async Task DriveLotMissing(VirtualEquipment eq, CancellationToken ct)
+    {
+        var lotId = $"LOT-{DateTime.UtcNow:yyyyMMdd}-MIS{Random.Shared.Next(1, 1000):D3}";
+        eq.StartLot(lotId, _settings.Timing.ExpectedTotalUnits);
+        await _publisher.PublishStatusAsync(eq, ct);
+
+        // 정상 검사 3회 후 LOT_END가 나오지 않는 상태 시뮬레이션
+        for (int i = 0; i < 3 && !ct.IsCancellationRequested; i++)
+        {
+            var payload = _mocks.Get<InspectionResultPayload>("04_inspection_pass");
+            var (stripNo, unitNo) = eq.CurrentStripAndUnit();
+            MockPayloadTransformer.OverrideInspection(
+                payload, eq.EquipmentId, lotId, $"STRIP-{stripNo:D3}", $"UNIT-{unitNo:D4}",
+                eq.RecipeId, eq.RecipeVersion, eq.OperatorId, eq.State.ToWire());
+            await _publisher.PublishInspectionAsync(eq, payload, ct);
+            eq.RecordInspection(pass: true);
+            try { await Task.Delay(TimeSpan.FromMilliseconds(_settings.Timing.TaktTimeMs), ct); }
+            catch (OperationCanceledException) { return; }
+        }
+
+        // HW_ALARM: VISION_SCORE_ERR (LotController AggregateException) — Mock 16
+        // LOT_END 미발행 상태에서 알람 발행
+        var alarm = _mocks.Get<HwAlarmPayload>("16_alarm_lot_start_fail");
+        await _publisher.PublishHwAlarmAsync(eq, alarm, ct);
+
+        // ORACLE_ANALYSIS: DANGER — LOT_END 누락으로 수율 판정 불가
+        await Task.Delay(TimeSpan.FromSeconds(2), ct);
+        var oracle = _mocks.Get<OracleAnalysisPayload>("25_oracle_danger");
+        MockPayloadTransformer.OverrideOracle(oracle, eq.EquipmentId, lotId, eq.RecipeId);
+        await _publisher.PublishOracleAsync(eq, oracle, ct);
+    }
+
+    // eap-spec §5.2 EAP 크래시 — AggregateException burst 41건 → Heartbeat 중단 → Will
+    // Mock 16: VISION_SCORE_ERR (burst) + Mock 17: EAP_DISCONNECTED (Will)
+    private async Task DriveEapCrashBurst(VirtualEquipment eq, CancellationToken ct)
+    {
+        var lotId = $"LOT-{DateTime.UtcNow:yyyyMMdd}-BUR{Random.Shared.Next(1, 1000):D3}";
+        eq.StartLot(lotId, _settings.Timing.ExpectedTotalUnits);
+        await _publisher.PublishStatusAsync(eq, ct);
+
+        // burst_id를 공유하는 연속 알람 발행 (실측: 41건, 시뮬레이션은 5건으로 단축)
+        var burstId = Guid.NewGuid().ToString();
+        var burstCount = 5;
+        for (int i = 1; i <= burstCount && !ct.IsCancellationRequested; i++)
+        {
+            var alarm = _mocks.Get<HwAlarmPayload>("16_alarm_lot_start_fail");
+            alarm.BurstId = burstId;
+            alarm.BurstCount = i;
+            await _publisher.PublishHwAlarmAsync(eq, alarm, ct);
+            try { await Task.Delay(TimeSpan.FromMilliseconds(300), ct); }
+            catch (OperationCanceledException) { return; }
+        }
+
+        // AggregateException 누적 후 EAP 프로세스 크래시 시뮬레이션
+        // Will 메시지는 Broker가 발행하지만, 시뮬레이션에서는 수동으로 발행
+        try { await Task.Delay(TimeSpan.FromSeconds(2), ct); }
+        catch (OperationCanceledException) { return; }
+        eq.TransitionToStop();
+        var willAlarm = _mocks.Get<HwAlarmPayload>("17_alarm_eap_disconnected");
+        await _publisher.PublishHwAlarmAsync(eq, willAlarm, ct);
+        _log.LogInformation("EAP crash burst simulated: {Eq} burst_id={BurstId} count={Count}",
+            eq.EquipmentId, burstId, burstCount);
+    }
+
     // 시나리오 타입별 초기 recipe 매핑 (eap-spec §5.3.1).
     // multi_equipment_4x.json에는 recipe 필드가 없으므로 scenario_type에서 유도한다.
     private static (string RecipeId, string Version) InitialRecipeFor(string scenarioType) => scenarioType switch
     {
-        "RUN_NORMAL"    => ("Carsem_3X3", "v1.0"),
-        "RUN_DEGRADED"  => ("Carsem_3X3", "v1.0"), // 이후 Carsem_4X6으로 전환됨
-        "IDLE"          => ("ATC_1X1",    "v1.0"),
-        "STOP_CRITICAL" => ("Carsem_3X3", "v1.0"),
-        _               => ("ATC_1X1",    "v1.0"),
+        "RUN_NORMAL"      => ("Carsem_3X3", "v1.0"),
+        "RUN_DEGRADED"    => ("Carsem_3X3", "v1.0"), // 이후 Carsem_4X6으로 전환됨
+        "IDLE"            => ("ATC_1X1",    "v1.0"),
+        "STOP_CRITICAL"   => ("Carsem_3X3", "v1.0"),
+        "DISK_FULL"       => ("Carsem_3X3", "v1.0"),
+        "LIGHT_DEGRADE"   => ("Carsem_3X3", "v1.0"),
+        "LOT_MISSING"     => ("Carsem_3X3", "v1.0"),
+        "EAP_CRASH_BURST" => ("Carsem_3X3", "v1.0"),
+        _                 => ("ATC_1X1",    "v1.0"),
     };
 
     private static string ResolveScenarioPath(string configPath)
     {
+        // 절대경로 — 그대로 반환
         if (Path.IsPathRooted(configPath) && File.Exists(configPath)) return configPath;
 
+        // 현재 작업 디렉토리 기준 상대경로 체크
+        var cwdResolved = Path.GetFullPath(configPath);
+        if (File.Exists(cwdResolved)) return cwdResolved;
+
+        // 실행 바이너리 디렉토리 기준 상대경로
         var baseDir = AppContext.BaseDirectory;
         var combined = Path.GetFullPath(Path.Combine(baseDir, configPath));
         if (File.Exists(combined)) return combined;
 
+        // fallback: 시나리오 파일명만 추출해서 DS-Document 디렉토리 탐색
+        var fileName = Path.GetFileName(configPath);
         var dir = new DirectoryInfo(baseDir);
         for (int i = 0; i < 8 && dir is not null; i++, dir = dir.Parent)
         {
             foreach (var name in new[] { "DS-Document", "ds-document" })
             {
-                var c = Path.Combine(dir.FullName, name, "EAP_mock_data", "scenarios", "multi_equipment_4x.json");
+                var c = Path.Combine(dir.FullName, name, "EAP_mock_data", "scenarios", fileName);
                 if (File.Exists(c)) return c;
             }
         }

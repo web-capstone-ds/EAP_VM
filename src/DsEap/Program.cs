@@ -15,7 +15,8 @@ var builder = Host.CreateApplicationBuilder(args);
 
 builder.Configuration
     .SetBasePath(AppContext.BaseDirectory)
-    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+    .AddCommandLine(args);  // 명령줄 인수가 appsettings.json보다 우선되도록 재등록
 
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()

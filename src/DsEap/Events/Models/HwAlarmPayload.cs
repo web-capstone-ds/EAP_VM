@@ -16,6 +16,7 @@ public sealed class HwAlarmPayload
     public bool AutoRecoveryAttempted { get; set; }
     public bool RequiresManualIntervention { get; set; }
     public string? BurstId { get; set; }
+    public int? BurstCount { get; set; } // burst_id 그룹 내 누적 알람 횟수 (API §6.1)
 }
 
 public sealed class ExceptionDetail
