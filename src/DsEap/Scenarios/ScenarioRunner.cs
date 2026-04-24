@@ -164,8 +164,8 @@ public sealed class ScenarioRunner
 
     private async Task DriveIdle(VirtualEquipment eq, CancellationToken ct)
     {
-        // 이미 생성 시 IDLE 상태. STATUS는 StatusLoop가 주기 발행.
-        // 최초 1회 즉시 발행으로 retained IDLE 상태 확정.
+        // 시나리오 의미: "직전 LOT 정상 완료 후 대기". API §3 lot_id 필수 필드 준수 위해 직전 LOT ID 시드.
+        eq.SeedPriorLot($"LOT-{DateTime.UtcNow:yyyyMMdd}-PRV{Random.Shared.Next(1, 1000):D3}");
         await _publisher.PublishStatusAsync(eq, ct);
     }
 

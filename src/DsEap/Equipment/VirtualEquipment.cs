@@ -53,6 +53,12 @@ public sealed class VirtualEquipment
         }
     }
 
+    // API §3 STATUS_UPDATE.lot_id = "현재(또는 마지막) Lot ID" — IDLE 시나리오용 직전 LOT 시드
+    public void SeedPriorLot(string lotId)
+    {
+        lock (_gate) LotId = lotId;
+    }
+
     public void StartLot(string lotId, int expectedTotalUnits)
     {
         lock (_gate)
