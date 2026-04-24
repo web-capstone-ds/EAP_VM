@@ -27,7 +27,26 @@
       "Bash(tasklist)",
       "Bash(taskkill *)",
       "Bash(sc query *)",
-      "Read(//c/Users/yunwo/AppData/Local/Temp/claude/C--Hansung-Project-EAP-VM/8c971ae5-928d-4117-9a2c-3de9852df17f/tasks/**)"
+      "Read(//c/Users/yunwo/AppData/Local/Temp/claude/C--Hansung-Project-EAP-VM/8c971ae5-928d-4117-9a2c-3de9852df17f/tasks/**)",
+      "Bash(netstat -ano)",
+      "PowerShell(Get-CimInstance *)",
+      "PowerShell(Get-Service mosquitto -ErrorAction SilentlyContinue | Format-List Name, Status, StartType, DisplayName; \"---\"; sc.exe qc mosquitto 2>&1 | Select-String -Pattern \"BINARY_PATH\")",
+      "Bash(grep -v \"^#\\\\|^$\" \"C:/Program Files/mosquitto/mosquitto.conf\")",
+      "Bash(\"/c/Program Files/mosquitto/mosquitto_pub\" -h localhost -p 1883 -t \"test/integration\" -m \"ping\")",
+      "Bash(echo \"---EXIT:$?\")",
+      "Bash(\"/c/Program Files/mosquitto/mosquitto_pub\" -h localhost -p 1883 -u eap_vis_001 -P \"eap_pass_123!\" -t \"ds/DS-VIS-001/heartbeat\" -m \"{}\")",
+      "Bash(rm -rf /tmp/eap_capture)",
+      "Bash(mkdir -p /tmp/eap_capture)",
+      "Read(//tmp/**)",
+      "Bash(python3 -c \"import json,sys; print\\(json.dumps\\(json.loads\\(sys.stdin.read\\(\\)\\), indent=2\\)\\)\")",
+      "Bash(where python *)",
+      "Bash(awk -F'\"topic\":\"' '{print $2}' /tmp/eap_capture/messages.ndjson)",
+      "Bash(awk -F'\"' '{print $1}')",
+      "Bash(node *)",
+      "Bash(/c/Program Files/mosquitto/mosquitto_sub *)",
+      "Bash(awk -F'\"topic\":\"' '{print $2}' /tmp/eap_capture/scenario.ndjson)",
+      "Bash(awk 'NR>=2')",
+      "Bash(awk 'NR>=2' /tmp/eap_capture/fix_verify.ndjson)"
     ]
   }
 }
