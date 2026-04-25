@@ -29,3 +29,4 @@ Thumbs.db
 appsettings.Local.json
 appsettings.Development.json
 *.secret
+DS-Document/
