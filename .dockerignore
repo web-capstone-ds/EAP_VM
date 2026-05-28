@@ -1,0 +1,11 @@
+.git
+.claude
+bin
+obj
+**/bin
+**/obj
+tests
+명세서
+*.log
+*.user
+*.suo
