@@ -46,7 +46,9 @@
       "Bash(/c/Program Files/mosquitto/mosquitto_sub *)",
       "Bash(awk -F'\"topic\":\"' '{print $2}' /tmp/eap_capture/scenario.ndjson)",
       "Bash(awk 'NR>=2')",
-      "Bash(awk 'NR>=2' /tmp/eap_capture/fix_verify.ndjson)"
+      "Bash(awk 'NR>=2' /tmp/eap_capture/fix_verify.ndjson)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Hansung_Project\" -Recurse -Filter \"multi_equipment_4x.json\" -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object FullName)"
     ]
   }
 }
