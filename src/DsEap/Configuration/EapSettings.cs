@@ -23,6 +23,15 @@ public sealed class BrokerSettings
     public bool CleanStart { get; set; } = false;
     public string Username { get; set; } = "";
     public string Password { get; set; } = "";
+    // 장비별 계정 오버라이드 (key = equipment_id, 예: "DS-VIS-001")
+    // 비어있으면 Username/Password 단일 계정으로 GoldenPath 장비 1대에 사용
+    public Dictionary<string, EquipmentCredential> PerEquipment { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+public sealed class EquipmentCredential
+{
+    public string Username { get; set; } = "";
+    public string Password { get; set; } = "";
 }
 
 public sealed class BackoffSettings
