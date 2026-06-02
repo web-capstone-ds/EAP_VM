@@ -190,7 +190,15 @@ public sealed class ScenarioRunner
             catch (OperationCanceledException) { return; }
         }
 
-        // 3회 ET=30 누적 → STOP 전환 + CAM_TIMEOUT_ERR (Mock 11) retained CRITICAL
+        // 3회 ET=30 누적 → CAM_TIMEOUT_ERR (CRITICAL): 양산 중이던 LOT를 강제 중단한다.
+        // eap-spec §5.1 lot_status=ABORTED — DISK_FULL/EMERGENCY_STOP과 동일하게 RUN 중 중단 시
+        // LOT_END(ABORTED)를 먼저 발행한다(검사 unit FAIL과 별개로, 끝난 LOT은 ABORTED로 집계).
+        if (eq.State == EquipmentState.Run)
+        {
+            await _publisher.PublishLotEndAsync(eq, "ABORTED", ct);
+            eq.FinalizeLot();
+        }
+        // CRITICAL 알람으로 STOP 전환 (RED 타일 유지) + CAM_TIMEOUT_ERR (Mock 11) retained CRITICAL
         eq.TransitionToStop();
         var alarm = _mocks.Get<HwAlarmPayload>("11_alarm_cam_timeout");
         await _publisher.PublishHwAlarmAsync(eq, alarm, ct);
