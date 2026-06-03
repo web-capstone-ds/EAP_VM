@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using DsEap.Configuration;
 using DsEap.Events.Models;
 
 namespace DsEap.MockData;
@@ -42,6 +45,42 @@ public static class MockPayloadTransformer
         src.OverallResult = "FAIL";
         src.FailReasonCode = $"ET={errorType}";
         return src;
+    }
+
+    // Cpk 검증용: geometric 수치 필드에 정규분포 지터를 더해 LOT 내 측정 산포(σ>0)를 만든다.
+    // Mock 파일 원본은 불변(매 takt 새 DTO 역직렬화). PASS/FAIL·ErrorType·inspection_detail에는 손대지 않는다.
+    public static void ApplyGeometricJitter(InspectionResultPayload src, GeometricJitterSettings cfg, Random rng)
+    {
+        if (!cfg.Enabled) return;
+        if (src.Geometric is not JsonElement geo || geo.ValueKind != JsonValueKind.Object) return;
+
+        var node = JsonNode.Parse(geo.GetRawText())?.AsObject();
+        if (node is null) return;
+
+        JitterField(node, "dimension_w_mm", cfg.DimensionSigmaMm, rng);
+        JitterField(node, "dimension_l_mm", cfg.DimensionSigmaMm, rng);
+        JitterField(node, "dimension_h_mm", cfg.DimensionSigmaMm, rng);
+        JitterField(node, "kerf_width_um", cfg.KerfSigmaUm, rng);
+
+        src.Geometric = JsonSerializer.SerializeToElement(node);
+    }
+
+    private static void JitterField(JsonObject obj, string key, double sigma, Random rng)
+    {
+        if (sigma <= 0) return;
+        if (!obj.TryGetPropertyValue(key, out var n) || n is null) return;
+        if (n.GetValueKind() != JsonValueKind.Number) return;
+
+        double noisy = n.GetValue<double>() + NextGaussian(rng) * sigma;
+        obj[key] = Math.Round(noisy, 4);
+    }
+
+    // Box-Muller 표준정규 표본
+    private static double NextGaussian(Random rng)
+    {
+        double u1 = 1.0 - rng.NextDouble();
+        double u2 = 1.0 - rng.NextDouble();
+        return Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
     }
 
     public static OracleAnalysisPayload OverrideOracle(

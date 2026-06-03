@@ -30,6 +30,7 @@ builder.Logging.AddSerilog(Log.Logger, dispose: true);
 
 builder.Services.Configure<EapSettings>(builder.Configuration.GetSection("Eap"));
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<EapSettings>>().Value.Timing);
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<EapSettings>>().Value.GeometricJitter);
 
 builder.Services.AddSingleton<MqttClientManager>();
 builder.Services.AddSingleton<AlarmTracker>();

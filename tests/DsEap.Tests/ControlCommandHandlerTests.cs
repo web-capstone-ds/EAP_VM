@@ -52,6 +52,7 @@ public sealed class ControlCommandHandlerTests
             new InspectionLoop(pub, new MockData.MockDataLoader(
                 Path.Combine(Path.GetTempPath(), $"eap-{Guid.NewGuid():N}"),
                 NullLogger<MockData.MockDataLoader>.Instance), new Configuration.TimingSettings(),
+                new Configuration.GeometricJitterSettings(),
                 NullLogger<InspectionLoop>.Instance),
             new MockData.MockDataLoader(
                 Path.Combine(Path.GetTempPath(), $"eap-{Guid.NewGuid():N}"),

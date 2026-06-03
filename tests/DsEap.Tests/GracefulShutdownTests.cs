@@ -48,7 +48,7 @@ public sealed class GracefulShutdownTests
         var hb = new HeartbeatLoop(pub, settings.Timing, NullLogger<HeartbeatLoop>.Instance);
         var st = new StatusLoop(pub, new AlarmTracker(NullLogger<AlarmTracker>.Instance), settings.Timing, NullLogger<StatusLoop>.Instance);
         var mocks = new MockDataLoader(Path.Combine(Path.GetTempPath(), $"eap-mocks-{Guid.NewGuid():N}"), NullLogger<MockDataLoader>.Instance);
-        var insp = new InspectionLoop(pub, mocks, settings.Timing, NullLogger<InspectionLoop>.Instance);
+        var insp = new InspectionLoop(pub, mocks, settings.Timing, settings.GeometricJitter, NullLogger<InspectionLoop>.Instance);
         var mgr = new EquipmentManager(opts, pub, hb, st, insp, mocks, NullLogger<EquipmentManager>.Instance);
         return (mgr, pub);
     }

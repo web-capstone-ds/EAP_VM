@@ -12,6 +12,18 @@ public sealed class EapSettings
     // E7 검증/통합테스트용. 0 또는 미지정이면 비활성. 양수면 해당 초 후
     // IHostApplicationLifetime.StopApplication()을 호출해 Ctrl+C와 동일한 graceful 경로 진입.
     public int AutoShutdownAfterSec { get; set; } = 0;
+
+    // 검증/시뮬레이션 전용. Mock 치수값(geometric)은 정적이라 LOT 내 모든 유닛이 동일 → σ=0 → Cpk 계산 불가.
+    // 활성 시 발행 직전 geometric 수치에 정규분포 지터를 더해 현실적인 측정 산포(σ>0)를 부여한다.
+    // Mock 원본 파일은 수정하지 않으며(§1.3), PASS/FAIL 판정·ErrorType에는 영향이 없다.
+    public GeometricJitterSettings GeometricJitter { get; set; } = new();
+}
+
+public sealed class GeometricJitterSettings
+{
+    public bool Enabled { get; set; } = false;          // 기본 off — 실데이터/일반 실행엔 영향 없음(옵트인)
+    public double DimensionSigmaMm { get; set; } = 0.01; // dimension_w/l/h_mm 표준편차(mm)
+    public double KerfSigmaUm { get; set; } = 0.5;       // kerf_width_um 표준편차(um)
 }
 
 public sealed class BrokerSettings

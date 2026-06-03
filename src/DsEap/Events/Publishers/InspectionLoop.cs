@@ -12,6 +12,7 @@ public sealed class InspectionLoop
     private readonly EventPublisher _publisher;
     private readonly MockDataLoader _mocks;
     private readonly TimingSettings _timing;
+    private readonly GeometricJitterSettings _jitter;
     private readonly ILogger<InspectionLoop> _log;
     private readonly Random _rand = new();
 
@@ -27,11 +28,13 @@ public sealed class InspectionLoop
         EventPublisher publisher,
         MockDataLoader mocks,
         TimingSettings timing,
+        GeometricJitterSettings jitter,
         ILogger<InspectionLoop> log)
     {
         _publisher = publisher;
         _mocks = mocks;
         _timing = timing;
+        _jitter = jitter;
         _log = log;
     }
 
@@ -59,6 +62,9 @@ public sealed class InspectionLoop
                     recipeVersion:eq.RecipeVersion,
                     operatorId:   eq.OperatorId,
                     equipmentStatus: eq.State.ToWire());
+
+                // Cpk 검증용: geometric에 측정 산포 부여 (옵트인, 기본 off)
+                MockPayloadTransformer.ApplyGeometricJitter(payload, _jitter, _rand);
 
                 await _publisher.PublishInspectionAsync(eq, payload, ct);
                 eq.RecordInspection(pass);
