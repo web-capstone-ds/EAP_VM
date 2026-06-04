@@ -113,7 +113,7 @@ public sealed class ScenarioRunner
             await _publisher.PublishStatusAsync(eq, ct);
 
             await _inspection.RunLotAsync(eq, _settings.Timing.GoldenPathMaxUnits, ct);
-            if (ct.IsCancellationRequested) return;
+            if (ct.IsCancellationRequested || eq.State != EquipmentState.Run) return;
 
             await _publisher.PublishLotEndAsync(eq, "COMPLETED", ct);
             eq.FinalizeLot();
@@ -138,7 +138,7 @@ public sealed class ScenarioRunner
         await _publisher.PublishStatusAsync(eq, ct);
 
         // SIDE ET=52 fail 폭주 — Mock 05 반복
-        for (int i = 0; i < 10 && !ct.IsCancellationRequested; i++)
+        for (int i = 0; i < 10 && !ct.IsCancellationRequested && eq.State == EquipmentState.Run; i++)
         {
             var payload = _mocks.Get<InspectionResultPayload>("05_inspection_fail_side_et52");
             var (stripNo, unitNo) = eq.CurrentStripAndUnit();
@@ -146,10 +146,11 @@ public sealed class ScenarioRunner
                 payload, eq.EquipmentId, lotId, $"STRIP-{stripNo:D3}", $"UNIT-{unitNo:D4}",
                 eq.RecipeId, eq.RecipeVersion, eq.OperatorId, eq.State.ToWire());
             await _publisher.PublishInspectionAsync(eq, payload, ct);
-            eq.RecordInspection(pass: false);
+            if (!eq.TryRecordInspection(pass: false)) return;
             try { await Task.Delay(TimeSpan.FromMilliseconds(_settings.Timing.TaktTimeMs), ct); }
             catch (OperationCanceledException) { return; }
         }
+        if (eq.State != EquipmentState.Run) return;
 
         // HW_ALARM: SIDE_VISION_FAIL (Mock 15)
         var alarm = _mocks.Get<HwAlarmPayload>("15_alarm_side_vision_fail");
@@ -176,7 +177,7 @@ public sealed class ScenarioRunner
         eq.StartLot(lotId, _settings.Timing.ExpectedTotalUnits);
         await _publisher.PublishStatusAsync(eq, ct);
 
-        for (int i = 0; i < 3 && !ct.IsCancellationRequested; i++)
+        for (int i = 0; i < 3 && !ct.IsCancellationRequested && eq.State == EquipmentState.Run; i++)
         {
             var payload = _mocks.Get<InspectionResultPayload>("07_inspection_fail_prs_offset");
             var (stripNo, unitNo) = eq.CurrentStripAndUnit();
@@ -185,10 +186,11 @@ public sealed class ScenarioRunner
                 eq.RecipeId, eq.RecipeVersion, eq.OperatorId, eq.State.ToWire());
             MockPayloadTransformer.OverrideSideErrorType(payload, errorType: 30);
             await _publisher.PublishInspectionAsync(eq, payload, ct);
-            eq.RecordInspection(pass: false);
+            if (!eq.TryRecordInspection(pass: false)) return;
             try { await Task.Delay(TimeSpan.FromMilliseconds(_settings.Timing.TaktTimeMs), ct); }
             catch (OperationCanceledException) { return; }
         }
+        if (eq.State != EquipmentState.Run) return;
 
         // 3회 ET=30 누적 → CAM_TIMEOUT_ERR (CRITICAL): 양산 중이던 LOT를 강제 중단한다.
         // eap-spec §5.1 lot_status=ABORTED — DISK_FULL/EMERGENCY_STOP과 동일하게 RUN 중 중단 시
@@ -220,7 +222,7 @@ public sealed class ScenarioRunner
         await _publisher.PublishStatusAsync(eq, ct);
 
         // 정상 검사 5회 → 디스크 포화 발생
-        for (int i = 0; i < 5 && !ct.IsCancellationRequested; i++)
+        for (int i = 0; i < 5 && !ct.IsCancellationRequested && eq.State == EquipmentState.Run; i++)
         {
             var payload = _mocks.Get<InspectionResultPayload>("04_inspection_pass");
             var (stripNo, unitNo) = eq.CurrentStripAndUnit();
@@ -228,10 +230,11 @@ public sealed class ScenarioRunner
                 payload, eq.EquipmentId, lotId, $"STRIP-{stripNo:D3}", $"UNIT-{unitNo:D4}",
                 eq.RecipeId, eq.RecipeVersion, eq.OperatorId, eq.State.ToWire());
             await _publisher.PublishInspectionAsync(eq, payload, ct);
-            eq.RecordInspection(pass: true);
+            if (!eq.TryRecordInspection(pass: true)) return;
             try { await Task.Delay(TimeSpan.FromMilliseconds(_settings.Timing.TaktTimeMs), ct); }
             catch (OperationCanceledException) { return; }
         }
+        if (eq.State != EquipmentState.Run) return;
 
         // HW_ALARM: WRITE_FAIL (Mock 12) — CRITICAL → STOP
         eq.TransitionToStop();
@@ -254,7 +257,7 @@ public sealed class ScenarioRunner
         await _publisher.PublishStatusAsync(eq, ct);
 
         // 정상 검사 3회
-        for (int i = 0; i < 3 && !ct.IsCancellationRequested; i++)
+        for (int i = 0; i < 3 && !ct.IsCancellationRequested && eq.State == EquipmentState.Run; i++)
         {
             var payload = _mocks.Get<InspectionResultPayload>("04_inspection_pass");
             var (stripNo, unitNo) = eq.CurrentStripAndUnit();
@@ -262,10 +265,11 @@ public sealed class ScenarioRunner
                 payload, eq.EquipmentId, lotId, $"STRIP-{stripNo:D3}", $"UNIT-{unitNo:D4}",
                 eq.RecipeId, eq.RecipeVersion, eq.OperatorId, eq.State.ToWire());
             await _publisher.PublishInspectionAsync(eq, payload, ct);
-            eq.RecordInspection(pass: true);
+            if (!eq.TryRecordInspection(pass: true)) return;
             try { await Task.Delay(TimeSpan.FromMilliseconds(_settings.Timing.TaktTimeMs), ct); }
             catch (OperationCanceledException) { return; }
         }
+        if (eq.State != EquipmentState.Run) return;
 
         // HW_ALARM: LIGHT_PWR_LOW (Mock 14) — WARNING, auto_recovery=true
         // auto_recovery=true이므로 EventPublisher가 자동 clear 트리거 (§4.5 Trigger 1)
@@ -273,7 +277,7 @@ public sealed class ScenarioRunner
         await _publisher.PublishHwAlarmAsync(eq, alarm, ct);
 
         // 조명 열화 후 FAIL 비율 증가 — ET=12 혼재 검사
-        for (int i = 0; i < 5 && !ct.IsCancellationRequested; i++)
+        for (int i = 0; i < 5 && !ct.IsCancellationRequested && eq.State == EquipmentState.Run; i++)
         {
             var failPayload = _mocks.Get<InspectionResultPayload>("06_inspection_fail_side_et12");
             var (s, u) = eq.CurrentStripAndUnit();
@@ -281,10 +285,11 @@ public sealed class ScenarioRunner
                 failPayload, eq.EquipmentId, lotId, $"STRIP-{s:D3}", $"UNIT-{u:D4}",
                 eq.RecipeId, eq.RecipeVersion, eq.OperatorId, eq.State.ToWire());
             await _publisher.PublishInspectionAsync(eq, failPayload, ct);
-            eq.RecordInspection(pass: false);
+            if (!eq.TryRecordInspection(pass: false)) return;
             try { await Task.Delay(TimeSpan.FromMilliseconds(_settings.Timing.TaktTimeMs), ct); }
             catch (OperationCanceledException) { return; }
         }
+        if (eq.State != EquipmentState.Run) return;
 
         // ORACLE_ANALYSIS: WARNING
         await Task.Delay(TimeSpan.FromSeconds(1), ct);
@@ -302,7 +307,7 @@ public sealed class ScenarioRunner
         await _publisher.PublishStatusAsync(eq, ct);
 
         // 정상 검사 3회 후 LOT_END가 나오지 않는 상태 시뮬레이션
-        for (int i = 0; i < 3 && !ct.IsCancellationRequested; i++)
+        for (int i = 0; i < 3 && !ct.IsCancellationRequested && eq.State == EquipmentState.Run; i++)
         {
             var payload = _mocks.Get<InspectionResultPayload>("04_inspection_pass");
             var (stripNo, unitNo) = eq.CurrentStripAndUnit();
@@ -310,10 +315,11 @@ public sealed class ScenarioRunner
                 payload, eq.EquipmentId, lotId, $"STRIP-{stripNo:D3}", $"UNIT-{unitNo:D4}",
                 eq.RecipeId, eq.RecipeVersion, eq.OperatorId, eq.State.ToWire());
             await _publisher.PublishInspectionAsync(eq, payload, ct);
-            eq.RecordInspection(pass: true);
+            if (!eq.TryRecordInspection(pass: true)) return;
             try { await Task.Delay(TimeSpan.FromMilliseconds(_settings.Timing.TaktTimeMs), ct); }
             catch (OperationCanceledException) { return; }
         }
+        if (eq.State != EquipmentState.Run) return;
 
         // HW_ALARM: VISION_SCORE_ERR (LotController AggregateException) — Mock 16
         // LOT_END 미발행 상태에서 알람 발행

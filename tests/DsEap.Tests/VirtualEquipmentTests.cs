@@ -36,6 +36,20 @@ public sealed class VirtualEquipmentTests
     }
 
     [Fact]
+    public void TryRecordInspection_ignores_non_running_state()
+    {
+        var eq = new VirtualEquipment("DS-VIS-001", "Carsem_3X3", "v1.0", "ENG-KIM");
+        eq.StartLot("LOT-1", 100);
+        eq.TransitionToStop();
+
+        var recorded = eq.TryRecordInspection(pass: true);
+
+        Assert.False(recorded);
+        Assert.Equal(0, eq.CurrentUnitCount);
+        Assert.Equal(0, eq.PassCount);
+    }
+
+    [Fact]
     public void FinalizeLot_returns_to_idle_and_snapshot()
     {
         var eq = new VirtualEquipment("DS-VIS-001", "Carsem_3X3", "v1.0", "ENG-KIM");

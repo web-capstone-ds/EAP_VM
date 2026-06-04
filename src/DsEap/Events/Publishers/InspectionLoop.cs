@@ -44,7 +44,7 @@ public sealed class InspectionLoop
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(_timing.TaktTimeMs));
         try
         {
-            while (!ct.IsCancellationRequested && eq.CurrentUnitCount < maxUnits)
+            while (!ct.IsCancellationRequested && eq.State == EquipmentState.Run && eq.CurrentUnitCount < maxUnits)
             {
                 var pass = _rand.NextDouble() < _timing.PassRatio;
                 var stem = pass ? "04_inspection_pass" : FailMockStems[_rand.Next(FailMockStems.Length)];
@@ -66,8 +66,9 @@ public sealed class InspectionLoop
                 // Cpk 검증용: geometric에 측정 산포 부여 (옵트인, 기본 off)
                 MockPayloadTransformer.ApplyGeometricJitter(payload, _jitter, _rand);
 
+                if (eq.State != EquipmentState.Run) return;
                 await _publisher.PublishInspectionAsync(eq, payload, ct);
-                eq.RecordInspection(pass);
+                if (!eq.TryRecordInspection(pass)) return;
 
                 try { await timer.WaitForNextTickAsync(ct); }
                 catch (OperationCanceledException) { return; }

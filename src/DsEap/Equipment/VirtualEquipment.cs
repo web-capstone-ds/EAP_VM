@@ -82,6 +82,17 @@ public sealed class VirtualEquipment
         }
     }
 
+    public bool TryRecordInspection(bool pass)
+    {
+        lock (_gate)
+        {
+            if (State != EquipmentState.Run) return false;
+            CurrentUnitCount++;
+            if (pass) PassCount++; else FailCount++;
+            return true;
+        }
+    }
+
     public (int totalUnits, int passCount, int failCount, double yieldPct, long durationSec) FinalizeLot()
     {
         lock (_gate)
