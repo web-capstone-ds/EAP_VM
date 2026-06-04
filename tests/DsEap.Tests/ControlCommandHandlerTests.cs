@@ -91,6 +91,28 @@ public sealed class ControlCommandHandlerTests
     }
 
     [Fact]
+    public async Task Start_transitions_stopped_equipment_to_run_with_new_lot()
+    {
+        var (handler, pub, mgr) = Build();
+        var eq = new VirtualEquipment("DS-VIS-001", "Carsem_3X3", "v1.0", "ENG-KIM");
+        eq.StartLot("LOT-OLD", 100);
+        eq.RecordInspection(pass: true);
+        eq.TransitionToStop();
+        mgr.Register(eq);
+
+        await handler.HandleAsync("DS-VIS-001", new ControlCmdPayload
+        {
+            Command = "START", IssuedBy = "MES_SERVER", Reason = "operator restart"
+        }, CancellationToken.None);
+
+        Assert.Equal(EquipmentState.Run, eq.State);
+        Assert.StartsWith("LOT-", eq.LotId);
+        Assert.NotEqual("LOT-OLD", eq.LotId);
+        Assert.Equal(0, eq.CurrentUnitCount);
+        Assert.Contains(pub.Calls, c => c.Kind == "STATUS" && c.Detail == "RUN");
+    }
+
+    [Fact]
     public async Task LotAbort_transitions_to_idle_not_stop()
     {
         var (handler, pub, mgr) = Build();

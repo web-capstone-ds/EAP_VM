@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 
 namespace DsEap.Events.Publishers;
 
-// CONTROL_CMD 6종 핸들러 — 모바일/MES에서 수신한 명령을 장비 상태에 반영
+// CONTROL_CMD 핸들러 — 모바일/MES에서 수신한 명령을 장비 상태에 반영
 public sealed class ControlCommandHandler
 {
     private readonly EquipmentManager _equipmentManager;
@@ -40,6 +40,11 @@ public sealed class ControlCommandHandler
 
         switch (cmd.Command)
         {
+            case "START":
+            case "RESUME":
+                await HandleStart(eq, cmd, ct);
+                break;
+
             case "EMERGENCY_STOP":
                 await HandleEmergencyStop(eq, ct);
                 break;
@@ -68,6 +73,20 @@ public sealed class ControlCommandHandler
             default:
                 _log.LogWarning("Unknown CONTROL_CMD command: {Cmd}", cmd.Command);
                 break;
+        }
+    }
+
+    private async Task HandleStart(VirtualEquipment eq, ControlCmdPayload cmd, CancellationToken ct)
+    {
+        var started = await _equipmentManager.StartProductionAsync(
+            eq,
+            string.IsNullOrWhiteSpace(cmd.Reason) ? "operator start" : cmd.Reason,
+            ct);
+
+        if (!started)
+        {
+            _log.LogInformation("START ignored: {Eq} already running or start task active", eq.EquipmentId);
+            await _publisher.PublishStatusAsync(eq, ct);
         }
     }
 

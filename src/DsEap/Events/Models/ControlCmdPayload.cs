@@ -9,7 +9,7 @@ public sealed class ControlCmdPayload
     public string EventType { get; set; } = EventTypes.ControlCmd;
     public string Timestamp { get; set; } = "";
     public string? EquipmentId { get; set; } // Mock 21/22는 미포함, 26/27은 포함
-    public string Command { get; set; } = ""; // EMERGENCY_STOP/STATUS_QUERY/ALARM_ACK/ALARM_CLEAR/RECIPE_LOAD/LOT_ABORT
+    public string Command { get; set; } = ""; // START/EMERGENCY_STOP/STATUS_QUERY/ALARM_ACK/ALARM_CLEAR/RECIPE_LOAD/LOT_ABORT
     public string IssuedBy { get; set; } = ""; // MOBILE_APP | MES
     public string? Reason { get; set; }
     public string? TargetLotId { get; set; }

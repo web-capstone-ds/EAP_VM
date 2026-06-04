@@ -20,6 +20,8 @@ public sealed class EquipmentManager
     private readonly ILogger<EquipmentManager> _log;
 
     private readonly Dictionary<string, VirtualEquipment> _equipments = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Task> _productionTasks = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _productionGate = new();
     private readonly List<Task> _bgTasks = new();
     private VirtualEquipment? _equipment;
     private Task? _heartbeatTask;
@@ -34,6 +36,56 @@ public sealed class EquipmentManager
     public IReadOnlyCollection<VirtualEquipment> All => _equipments.Values;
 
     public void Register(VirtualEquipment eq) => _equipments[eq.EquipmentId] = eq;
+
+    public async Task<bool> StartProductionAsync(VirtualEquipment eq, string reason, CancellationToken ct)
+    {
+        string lotId;
+        lock (_productionGate)
+        {
+            if (eq.State == EquipmentState.Run) return false;
+            if (_productionTasks.TryGetValue(eq.EquipmentId, out var existing) && !existing.IsCompleted)
+                return false;
+
+            lotId = $"LOT-{DateTime.UtcNow:yyyyMMdd}-MAN{Random.Shared.Next(1, 1000):D3}";
+            eq.StartLot(lotId, _settings.Timing.ExpectedTotalUnits);
+        }
+
+        await _publisher.PublishStatusAsync(eq, ct);
+        _log.LogInformation("Manual START: {Eq} lot={Lot} reason={Reason}", eq.EquipmentId, lotId, reason);
+
+        var task = Task.Run(() => RunManualProductionLotAsync(eq, lotId, CancellationToken.None), CancellationToken.None);
+        lock (_productionGate)
+        {
+            _productionTasks[eq.EquipmentId] = task;
+        }
+
+        return true;
+    }
+
+    private async Task RunManualProductionLotAsync(VirtualEquipment eq, string lotId, CancellationToken ct)
+    {
+        try
+        {
+            await _inspection.RunLotAsync(eq, _settings.Timing.GoldenPathMaxUnits, ct);
+            if (ct.IsCancellationRequested || eq.State != EquipmentState.Run) return;
+
+            await _publisher.PublishLotEndAsync(eq, "COMPLETED", ct);
+            var (total, pass, fail, yieldPct, _) = eq.FinalizeLot();
+            _log.LogInformation("Manual START lot end: {Eq} {Lot} total={Total} pass={Pass} fail={Fail} yield={Yield}%",
+                eq.EquipmentId, lotId, total, pass, fail, yieldPct);
+
+            await _publisher.PublishStatusAsync(eq, ct);
+
+            var oracle = _mocks.Get<OracleAnalysisPayload>("23_oracle_normal");
+            MockPayloadTransformer.OverrideOracle(oracle, eq.EquipmentId, lotId, eq.RecipeId);
+            await _publisher.PublishOracleAsync(eq, oracle, ct);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Manual START lot failed for {Eq}", eq.EquipmentId);
+        }
+    }
 
     public EquipmentManager(
         IOptions<EapSettings> settings,
