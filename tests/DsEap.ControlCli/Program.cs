@@ -8,7 +8,7 @@ using MQTTnet.Protocol;
 // E4 검증용 CONTROL_CMD 송신 CLI
 //
 // 사용법:
-//   DsEapControlCli <command> <equipment_id> [--burst-id <id>] [--issuer <name>] [--reason <text>]
+//   DsEapControlCli <command> <equipment_id> [--burst-id <id>] [--issuer <name>] [--reason <text>] [--recipe <name>] [--recipe-version <version>]
 //
 // command: emergency-stop | status-query | alarm-ack | alarm-clear | recipe-load | lot-abort
 // 예시:
@@ -16,10 +16,11 @@ using MQTTnet.Protocol;
 //   DsEapControlCli status-query   DS-VIS-002
 //   DsEapControlCli alarm-ack      DS-VIS-004
 //   DsEapControlCli alarm-ack      DS-VIS-004 --burst-id BURST-001
+//   DsEapControlCli recipe-load    DS-VIS-002 --recipe Carsem_4X6
 
 if (args.Length < 1)
 {
-    Console.Error.WriteLine("usage: DsEapControlCli <command> <equipment_id> [--burst-id <id>] [--issuer <name>] [--reason <text>]");
+    Console.Error.WriteLine("usage: DsEapControlCli <command> <equipment_id> [--burst-id <id>] [--issuer <name>] [--reason <text>] [--recipe <name>] [--recipe-version <version>]");
     Console.Error.WriteLine("       DsEapControlCli watch [<topic_filter>] [--seconds <N>]");
     return 2;
 }
@@ -69,7 +70,7 @@ if (args[0].Equals("watch", StringComparison.OrdinalIgnoreCase))
 
 if (args.Length < 2)
 {
-    Console.Error.WriteLine("usage: DsEapControlCli <command> <equipment_id> [--burst-id <id>] [--issuer <name>] [--reason <text>]");
+    Console.Error.WriteLine("usage: DsEapControlCli <command> <equipment_id> [--burst-id <id>] [--issuer <name>] [--reason <text>] [--recipe <name>] [--recipe-version <version>]");
     return 2;
 }
 
@@ -88,6 +89,8 @@ var equipmentId = args[1];
 string? burstId = null;
 var issuer = "MOBILE-APP-TEST";
 var reason = "E4 검증용 송신";
+string? recipe = null;
+var recipeVersion = "v1.0";
 
 for (int i = 2; i < args.Length - 1; i++)
 {
@@ -96,7 +99,15 @@ for (int i = 2; i < args.Length - 1; i++)
         case "--burst-id": burstId = args[i + 1]; i++; break;
         case "--issuer":   issuer  = args[i + 1]; i++; break;
         case "--reason":   reason  = args[i + 1]; i++; break;
+        case "--recipe":   recipe  = args[i + 1]; i++; break;
+        case "--recipe-version": recipeVersion = args[i + 1]; i++; break;
     }
+}
+
+if (command == "RECIPE_LOAD" && string.IsNullOrWhiteSpace(recipe))
+{
+    Console.Error.WriteLine("recipe-load requires --recipe <name>");
+    return 2;
 }
 
 var host = Environment.GetEnvironmentVariable("EAP_BROKER_HOST") ?? "localhost";
@@ -116,6 +127,15 @@ var payload = new Dictionary<string, object?>
 };
 if (!string.IsNullOrEmpty(burstId))
     payload["target_burst_id"] = burstId;
+if (command == "RECIPE_LOAD")
+{
+    payload["reason"] = $"Load {recipe}";
+    payload["payload"] = new Dictionary<string, object?>
+    {
+        ["recipe_id"] = recipe,
+        ["recipe_version"] = recipeVersion,
+    };
+}
 
 var json = JsonSerializer.SerializeToUtf8Bytes(payload, new JsonSerializerOptions
 {

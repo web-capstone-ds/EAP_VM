@@ -1,5 +1,7 @@
 namespace DsEap.Events.Models;
 
+using System.Text.Json;
+
 // API 명세서 §8 CONTROL_CMD — 구독 전용, equipment_status 제외
 public sealed class ControlCmdPayload
 {
@@ -12,4 +14,5 @@ public sealed class ControlCmdPayload
     public string? Reason { get; set; }
     public string? TargetLotId { get; set; }
     public string? TargetBurstId { get; set; } // ALARM_ACK burst 그룹 ACK (§6.6.2)
+    public Dictionary<string, JsonElement>? Payload { get; set; }
 }

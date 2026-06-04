@@ -35,8 +35,17 @@ public sealed class ControlCommandHandlerTests
 
         public override Task PublishHeartbeatAsync(VirtualEquipment eq, CancellationToken ct) => Task.CompletedTask;
         public override Task PublishInspectionAsync(VirtualEquipment eq, InspectionResultPayload p, CancellationToken ct) => Task.CompletedTask;
-        public override Task PublishRecipeChangedAsync(VirtualEquipment eq, string a, string b, string c, string d, CancellationToken ct) => Task.CompletedTask;
-        public override Task PublishHwAlarmAsync(VirtualEquipment eq, HwAlarmPayload p, CancellationToken ct) => Task.CompletedTask;
+        public override Task PublishRecipeChangedAsync(VirtualEquipment eq, string a, string b, string c, string d, CancellationToken ct)
+        {
+            Calls.Add(new("RECIPE_CHANGED", eq.EquipmentId, $"{a}->{c}"));
+            return Task.CompletedTask;
+        }
+
+        public override Task PublishHwAlarmAsync(VirtualEquipment eq, HwAlarmPayload p, CancellationToken ct)
+        {
+            Calls.Add(new("HW_ALARM", eq.EquipmentId, p.HwErrorCode));
+            return Task.CompletedTask;
+        }
         public override Task PublishOracleAsync(VirtualEquipment eq, OracleAnalysisPayload p, CancellationToken ct) => Task.CompletedTask;
     }
 
@@ -165,6 +174,30 @@ public sealed class ControlCommandHandlerTests
 
         Assert.Single(pub.Calls);
         Assert.Equal("ALARM_CLEAR", pub.Calls[0].Kind);
+    }
+
+    [Fact]
+    public async Task RecipeLoad_changes_recipe_and_publishes_notice_alarm()
+    {
+        var (handler, pub, mgr) = Build();
+        var eq = new VirtualEquipment("DS-VIS-001", "Carsem_3X3", "v1.0", "ENG-KIM");
+        mgr.Register(eq);
+
+        await handler.HandleAsync("DS-VIS-001", new ControlCmdPayload
+        {
+            Command = "RECIPE_LOAD",
+            IssuedBy = "MES_SERVER",
+            Payload = new Dictionary<string, System.Text.Json.JsonElement>
+            {
+                ["recipe_id"] = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>("\"Carsem_4X6\""),
+                ["recipe_version"] = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>("\"v1.0\"")
+            }
+        }, CancellationToken.None);
+
+        Assert.Equal("Carsem_4X6", eq.RecipeId);
+        Assert.Contains(pub.Calls, c => c.Kind == "RECIPE_CHANGED" && c.Detail == "Carsem_3X3->Carsem_4X6");
+        Assert.Contains(pub.Calls, c => c.Kind == "HW_ALARM" && c.Detail == "RECIPE_CHANGED_NOTICE");
+        Assert.Contains(pub.Calls, c => c.Kind == "STATUS");
     }
 
     [Fact]

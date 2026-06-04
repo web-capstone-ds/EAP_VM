@@ -103,12 +103,97 @@ public sealed class ControlCommandHandler
         _alarmTracker.ClearAlarm(eq.EquipmentId);
     }
 
-    // eap-spec §7.2 RECIPE_LOAD — MES 전용. 지정 레시피 로드 → RECIPE_CHANGED 발행
-    private Task HandleRecipeLoad(VirtualEquipment eq, ControlCmdPayload cmd, CancellationToken ct)
+    // eap-spec §7.2 RECIPE_LOAD — MES 전용. 지정 레시피 로드 → RECIPE_CHANGED + 모바일 알림 발행
+    private async Task HandleRecipeLoad(VirtualEquipment eq, ControlCmdPayload cmd, CancellationToken ct)
     {
-        // cmd.Reason에 "recipe_id:version" 형식이 들어올 수 있으나, 현재 Mock 미존재이므로 로그만 출력
-        _log.LogInformation("RECIPE_LOAD: eq={Eq} reason={Reason} (MES 전용)", eq.EquipmentId, cmd.Reason);
-        return Task.CompletedTask;
+        var (newRecipeId, newRecipeVersion) = ResolveRecipeTarget(cmd);
+        if (string.IsNullOrWhiteSpace(newRecipeId))
+        {
+            _log.LogWarning("RECIPE_LOAD ignored: recipe_id missing. eq={Eq} reason={Reason}", eq.EquipmentId, cmd.Reason);
+            return;
+        }
+
+        var prevRecipeId = eq.RecipeId;
+        var prevRecipeVersion = eq.RecipeVersion;
+        newRecipeVersion = string.IsNullOrWhiteSpace(newRecipeVersion) ? "v1.0" : newRecipeVersion.Trim();
+
+        if (string.Equals(prevRecipeId, newRecipeId, StringComparison.Ordinal)
+            && string.Equals(prevRecipeVersion, newRecipeVersion, StringComparison.Ordinal))
+        {
+            _log.LogInformation("RECIPE_LOAD no-op: {Eq} already uses {Recipe} {Version}",
+                eq.EquipmentId, newRecipeId, newRecipeVersion);
+            await _publisher.PublishStatusAsync(eq, ct);
+            return;
+        }
+
+        eq.ChangeRecipe(newRecipeId.Trim(), newRecipeVersion);
+        _log.LogInformation("RECIPE_LOAD applied: {Eq} {PrevRecipe}/{PrevVersion} -> {NewRecipe}/{NewVersion}",
+            eq.EquipmentId, prevRecipeId, prevRecipeVersion, eq.RecipeId, eq.RecipeVersion);
+
+        await _publisher.PublishRecipeChangedAsync(
+            eq,
+            prevRecipeId,
+            prevRecipeVersion,
+            eq.RecipeId,
+            eq.RecipeVersion,
+            ct);
+
+        await PublishRecipeChangedNoticeAsync(eq, cmd, prevRecipeId, prevRecipeVersion, ct);
+        await _publisher.PublishStatusAsync(eq, ct);
+    }
+
+    private static (string RecipeId, string RecipeVersion) ResolveRecipeTarget(ControlCmdPayload cmd)
+    {
+        var recipeId = TryPayloadString(cmd, "recipe_id")
+            ?? TryPayloadString(cmd, "recipeName")
+            ?? TryPayloadString(cmd, "recipe_name")
+            ?? ExtractRecipeFromReason(cmd.Reason);
+
+        var version = TryPayloadString(cmd, "recipe_version")
+            ?? TryPayloadString(cmd, "recipeVersion")
+            ?? "v1.0";
+
+        return (recipeId ?? "", version);
+    }
+
+    private static string? TryPayloadString(ControlCmdPayload cmd, string key)
+    {
+        if (cmd.Payload is null || !cmd.Payload.TryGetValue(key, out var value))
+            return null;
+
+        return value.ValueKind == System.Text.Json.JsonValueKind.String
+            ? value.GetString()
+            : value.ToString();
+    }
+
+    private static string? ExtractRecipeFromReason(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason)) return null;
+        var text = reason.Trim();
+        return text.StartsWith("Load ", StringComparison.OrdinalIgnoreCase)
+            ? text[5..].Trim()
+            : text;
+    }
+
+    private async Task PublishRecipeChangedNoticeAsync(
+        VirtualEquipment eq,
+        ControlCmdPayload cmd,
+        string prevRecipeId,
+        string prevRecipeVersion,
+        CancellationToken ct)
+    {
+        var alarm = new HwAlarmPayload
+        {
+            AlarmLevel = "WARNING",
+            HwErrorCode = "RECIPE_CHANGED_NOTICE",
+            HwErrorSource = "MES_RECIPE_CONTROL",
+            HwErrorDetail = $"Recipe changed from {prevRecipeId}/{prevRecipeVersion} to {eq.RecipeId}/{eq.RecipeVersion}",
+            AutoRecoveryAttempted = false,
+            RequiresManualIntervention = true,
+            BurstId = string.IsNullOrWhiteSpace(cmd.MessageId) ? Guid.NewGuid().ToString() : cmd.MessageId,
+        };
+
+        await _publisher.PublishHwAlarmAsync(eq, alarm, ct);
     }
 
     // eap-spec §7.2 LOT_ABORT — MES 전용. LOT_END(ABORTED) → STATUS(IDLE) 전환
